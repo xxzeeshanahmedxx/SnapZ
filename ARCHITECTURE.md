@@ -154,3 +154,39 @@ times instead of 36 million.
 - **No build step.** Native ES modules. Edit a file, refresh, done. It will still run in 10 years.
 - **No downscaling.** Compression changes the codec, never the pixels.
 - **No text on the camera screen.** Time and place are recorded but deliberately hidden until the gallery.
+
+---
+
+## 8. Backend (optional)
+
+The app is fully functional with no backend. Adding one gives durability beyond a
+single device.
+
+```
+SnapZ/
+├── sync.js              frontend: offline-first upload queue
+└── api/
+    ├── wrangler.toml    D1 + R2 bindings
+    ├── schema.sql       one table, `day` is the PRIMARY KEY
+    ├── src/index.js     the Worker (5 routes)
+    └── README.md        deploy steps
+```
+
+**Division of labour:** D1 is a *journal index* (day, time, location, image URL) —
+small, queryable, cheap. R2 holds the bytes. Never put images in D1.
+
+**Offline-first ordering** — the network is never in the critical path:
+
+```
+capture → IndexedDB → UI updates → shutter ready
+                           └→ worker: enhance + compress
+                                 └→ POST /api/snap → R2 + D1
+                                       └→ mark synced  (retry queue if offline)
+```
+
+**One image per day** is enforced in three places: `day` is the D1 primary key, the R2
+key is derived from the day (`2026-10-01.webp`), and `save()` replaces any existing
+local record for today. Re-shooting replaces; it never duplicates.
+
+Config lives in `localStorage` (`snapz_api`, `snapz_token`) — long-press the gallery
+thumbnail to set them. No token means the app simply stays local-only.

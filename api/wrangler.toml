@@ -1,0 +1,23 @@
+name = "snapz-api"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+
+# ---- D1: the journal (one row per day) ----
+[[d1_databases]]
+binding       = "DB"
+database_name = "snapz"
+database_id   = "PASTE_DATABASE_ID_HERE"   # from: wrangler d1 create snapz
+
+# ---- R2: the image bytes ----
+[[r2_buckets]]
+binding     = "BUCKET"
+bucket_name = "snapz-photos"               # from: wrangler r2 bucket create snapz-photos
+
+[vars]
+# Optional. If you attach a custom domain or enable r2.dev on the bucket, put it
+# here and image URLs point straight at R2 (cheapest + fastest).
+# Leave empty to serve images through the Worker at /i/<key>.
+R2_PUBLIC_BASE = ""
+
+# Secret (do NOT put it here) — set it with:
+#   wrangler secret put SNAPZ_TOKEN

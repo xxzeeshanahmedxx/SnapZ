@@ -3,6 +3,7 @@
    Every shot goes through a quality pipeline (see enhance.js). */
 
 import { enhance, averageFrames } from './enhance.js';
+import * as cloud from './sync.js';
 
 const $ = id => document.getElementById(id);
 const DB = 'snapz', STORE = 'snaps';
@@ -200,6 +201,7 @@ async function capture() {
       urls.delete(rec.id);
       await load();
     }
+    syncRecord(rec);
   } finally {
     busy = false; $('shutter').disabled = false;
   }
@@ -247,17 +249,54 @@ async function burstCapture(mirror) {
 $('pick').onchange = async e => { const f = e.target.files[0]; if (f) await save(f, Date.now()); e.target.value = ''; };
 
 async function save(blob, ts) {
-  const rec = { id:'s'+ts+Math.random().toString(36).slice(2,6), ts, day:dayKey(ts),
+  /* One image per day: a new shot today replaces today's existing one,
+     matching the D1 schema where `day` is the primary key. */
+  const today = dayKey(ts);
+  const existing = snaps.find(s => s.day === today);
+  if (existing) { await dbDel(existing.id); urls.delete(existing.id); }
+
+  const rec = { id:'s'+ts+Math.random().toString(36).slice(2,6), ts, day:today,
     lat:lastPos?.lat ?? null, lon:lastPos?.lon ?? null, acc:lastPos?.acc ?? null,
-    place:'', blob, type: blob.type || 'image/jpeg', bytes: blob.size };
+    place:'', synced:false, blob, type: blob.type || 'image/jpeg', bytes: blob.size };
   await dbPut(rec);
   await load();
   /* reverse-geocode without making the shutter wait on the network */
   if (rec.lat != null) placeName(rec.lat, rec.lon).then(async n => {
-    if (n) { rec.place = n; await dbPut(rec); }
+    if (n) { rec.place = n; await dbPut(rec); syncRecord(rec); }
   });
   return rec;
 }
+
+/* ================= CLOUD ================= */
+async function syncRecord(rec) {
+  if (!cloud.getToken()) return;                 // not configured — stay local-only
+  try {
+    await cloud.upload(rec);
+    rec.synced = true; await dbPut(rec); await load();
+  } catch (e) {
+    cloud.enqueue(rec.day);                      // retried on reconnect
+  }
+}
+const recordForDay = async day => (await dbAll()).find(s => s.day === day);
+const flush = () => cloud.flush(recordForDay, async day => {
+  const r = await recordForDay(day);
+  if (r) { r.synced = true; await dbPut(r); await load(); }
+});
+window.addEventListener('snapz:flush', flush);
+
+/* Long-press the gallery button to configure the backend. */
+let pressTimer = null;
+$('toGallery').addEventListener('pointerdown', () => {
+  pressTimer = setTimeout(() => {
+    pressTimer = null;
+    const api = prompt('SnapZ API URL', cloud.apiBase());
+    if (api) cloud.setApi(api);
+    const t = prompt('Access token (set with: wrangler secret put SNAPZ_TOKEN)', cloud.getToken());
+    if (t) { cloud.setToken(t); flush(); }
+  }, 700);
+});
+['pointerup','pointerleave','pointercancel'].forEach(ev =>
+  $('toGallery').addEventListener(ev, () => { if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; } }));
 
 /* ================= GALLERY ================= */
 async function load() {
@@ -265,7 +304,8 @@ async function load() {
   const bytes = snaps.reduce((n, s) => n + (s.bytes || s.blob?.size || 0), 0);
   const mb = bytes / 1048576;
   $('gcount').textContent = snaps.length
-    ? `${snaps.length} ${snaps.length === 1 ? 'snap' : 'snaps'} · ${mb < 1024 ? mb.toFixed(mb < 10 ? 1 : 0) + ' MB' : (mb / 1024).toFixed(1) + ' GB'}`
+    ? `${snaps.length} ${snaps.length === 1 ? 'snap' : 'snaps'} · ${mb < 1024 ? mb.toFixed(mb < 10 ? 1 : 0) + ' MB' : (mb / 1024).toFixed(1) + ' GB'}` +
+      (cloud.pending() ? ` · ${cloud.pending()} to upload` : '')
     : '';
   const t = $('toGallery');
   if (snaps[0]) { t.style.backgroundImage = `url(${urlFor(snaps[0])})`;
@@ -301,7 +341,9 @@ function openViewer(s) {
 $('vClose').onclick = () => { $('viewer').hidden = true; cur = null; };
 $('vDel').onclick = async () => {
   if (!cur || !confirm('Delete this snap?')) return;
+  const day = cur.day;
   await dbDel(cur.id); urls.delete(cur.id); $('viewer').hidden = true; cur = null; await load();
+  if (cloud.getToken()) cloud.remoteDelete(day).catch(() => {});
 };
 
 /* ================= TIME-LAPSE ================= */
@@ -387,7 +429,7 @@ document.addEventListener('keydown', e => {
    archive, so ask for persistent storage up front. */
 if (navigator.storage?.persist) navigator.storage.persist().catch(() => {});
 
-load();
+load().then(flush);
 startCam();
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && !stream) startCam();
