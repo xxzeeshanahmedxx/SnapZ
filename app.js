@@ -237,7 +237,14 @@ function paint() {
 
   const grid = $('grid');
   grid.innerHTML = '';
-  if (!isOpen()) return;
+
+  /* Closed day: no photos, but you still get proof that today's snap made it
+     to the cloud. Trust, but verify. */
+  if (!isOpen()) {
+    grid.appendChild(statusTile());
+    $('empty').hidden = true;
+    return;
+  }
   for (const s of snaps) {
     const i = new Image();
     i.src = s.thumb_url || s.url;        // ~20 KB, not the full photo
@@ -247,9 +254,45 @@ function paint() {
   }
 }
 
+function statusTile() {
+  const today = dayKey(Date.now());
+  const done  = snaps.find(s => s.day === today);
+  const el = document.createElement('div');
+  el.className = 'tile status';
+
+  const set = (state, mark, head, sub) => {
+    el.classList.add(state);
+    el.innerHTML = `<span class="mark">${mark}</span>
+      <strong>${head}</strong><span class="sub">${sub}</span>`;
+  };
+
+  if (done) {
+    const kb = done.bytes ? (done.bytes / 1048576).toFixed(1) + ' MB' : '';
+    set('ok', '&#10003;', 'Today is saved',
+        `${fmtTime(done.ts)}${kb ? ' · ' + kb : ''} · in the cloud`);
+  } else {
+    set('none', '&#9675;', 'No snap today', 'Tap the shutter');
+    cloud.pending().then(q => {
+      const w = q.find(r => r.day === today);
+      if (w) { el.className = 'tile status wait';
+        set('wait', '&#8635;', 'Waiting to upload',
+            `Taken ${fmtTime(w.ts)} · still on this phone`); }
+    });
+  }
+
+  const n = nextOpen();
+  if (n) {
+    const foot = document.createElement('span');
+    foot.className = 'sub shut-note';
+    foot.textContent = 'Photos open ' + DAYS[n.getDay()];
+    el.appendChild(foot);
+  }
+  return el;
+}
+
 const show = id => document.querySelectorAll('.screen').forEach(s =>
   ['viewer','lapse','gate','login'].includes(s.id) ? 0 : s.classList.toggle('on', s.id === id));
-$('toGallery').onclick = () => { if (!isOpen()) return gate(); show('gal'); refresh(); };
+$('toGallery').onclick = () => { show('gal'); refresh(); };
 $('toCam').onclick = () => show('cam');
 
 /* ---------- day gate ---------- */

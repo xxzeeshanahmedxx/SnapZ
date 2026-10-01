@@ -63,6 +63,12 @@ thumbnail button is blank, and a screen counts down to the next open day and
 dismisses itself at midnight. **Capture is never gated** — you can always take
 the day's photo.
 
+The gallery page itself still opens on a closed day, but it contains **no
+photos** — only a single status tile confirming what happened today: saved to
+the cloud (with the time and size), waiting in the outbox, or nothing taken yet.
+That way you never have to trust the app blindly; you can verify the upload
+without seeing the picture.
+
 ## 5. Passcode
 Your passcode protects the **API**, not the phone. It is PBKDF2-hashed in D1;
 logging in returns a signed token kept in `localStorage` for a year. Without it,

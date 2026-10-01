@@ -107,3 +107,22 @@ a{color:#fff}
 .gate-cal span{font-size:14px;font-weight:600;letter-spacing:1px;color:#8b909b;text-transform:uppercase}
 .gate-count{margin-top:-12px !important;font-size:13px;color:#5d6472 !important}
 .thumb.shut{background-image:none !important;opacity:.4}
+
+/* ---- closed-day proof tile: no photo, just confirmation ---- */
+.tile.status{
+  grid-column:1/-1; display:flex; flex-direction:column; align-items:center;
+  justify-content:center; gap:4px; text-align:center;
+  padding:30px 18px; margin:14px 10px; border-radius:16px;
+  background:#121212; border:1px solid #242424; color:#f2f2f2;
+}
+.tile.status .mark{
+  width:46px; height:46px; margin-bottom:6px; border-radius:50%;
+  display:grid; place-items:center; font-size:22px; line-height:1;
+}
+.tile.status strong{ font-size:16px; font-weight:600; letter-spacing:-.01em; }
+.tile.status .sub{ font-size:13px; color:#8c8c8c; }
+.tile.status .shut-note{ margin-top:10px; padding-top:10px; font-size:12px;
+  border-top:1px solid #222; width:100%; max-width:220px; color:#6f6f6f; }
+.tile.status.ok   .mark{ background:#123c22; color:#48d882; }
+.tile.status.wait .mark{ background:#3a3112; color:#e8c050; }
+.tile.status.none .mark{ background:#1c1c1c; color:#6a6a6a; }

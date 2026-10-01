@@ -2,7 +2,7 @@
    Photos come from R2 and are cached on first view; only failed uploads are
    held locally, in the outbox. */
 
-const VERSION = 'snapz-v6';
+const VERSION = 'snapz-v7';
 const SHELL = [
   './',
   './index.html',
