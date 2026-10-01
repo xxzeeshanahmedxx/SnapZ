@@ -15,16 +15,8 @@
 <!-- ================= CAMERA ================= -->
 <section id="cam" class="screen on">
   <video id="video" autoplay playsinline muted></video>
-  <canvas id="overlay" class="overlay"></canvas>
   <div id="flash" class="flash"></div>
 
-  <button id="guideBtn" class="corner" aria-label="Alignment guide">
-    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
-      <ellipse cx="12" cy="11" rx="6.2" ry="8"/><circle cx="9.6" cy="10" r="1"/><circle cx="14.4" cy="10" r="1"/>
-      <path d="M12 2v2M12 20v2M2 11h2M20 11h2"/>
-    </svg>
-  </button>
-  <div id="hint" class="hint" hidden></div>
 
   <div id="fallback" class="fallback" hidden>
     <p id="fbMsg"></p>
@@ -35,7 +27,7 @@
 
   <div class="bar">
     <button id="toGallery" class="thumb" aria-label="Gallery"></button>
-    <button id="shutter" class="shutter" aria-label="Capture"><span id="ring"></span></button>
+    <button id="shutter" class="shutter" aria-label="Capture"></button>
     <button id="flip" class="flip" aria-label="Flip camera">
       <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
         <path d="M3 8V6a2 2 0 0 1 2-2h3l1.5-2h5L16 4h3a2 2 0 0 1 2 2v2"/>
@@ -100,7 +92,6 @@
   </div>
 </section>
 
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1633559619/face_mesh.js" crossorigin="anonymous"></script>
-<script src="app.js"></script>
+<script type="module" src="app.js"></script>
 </body>
 </html>
