@@ -14,6 +14,16 @@ No stats, no forms, no "save" step, nothing on screen but the viewfinder. Behind
 - **Tap a photo** to reveal what was hidden: the full date, the time, the place name, a map link, and the image link.
 - **Export** (↓ icon in the gallery) — the full archive as JSON: dates, times, coordinates, place names and the images themselves.
 
+## Eye alignment (MediaPipe Face Mesh)
+Every photo is quietly warped on save so your **eyes land on exactly the same two pixels**, using 468-point face landmarks detected on-device.
+
+- **Always on, invisible.** Your first snap sets the anchor; every snap after is rotated, scaled and shifted to match it. Nothing changes about how you shoot.
+- **Why:** a stack of selfies where the eyes never move becomes a smooth time-lapse of you ageing, instead of a jittery mess.
+- **Guide mode** (face icon, top-right) is optional: a ghost outline of the target position, live nudges — *come closer, straighten up* — and an **auto-shutter** that fires once you hold the pose for ~0.9s. Off by default, so the screen stays bare.
+- **▶ Time-lapse** in the gallery plays every snap oldest→newest with a speed slider, and **Save video** renders it to a file.
+
+Face Mesh runs entirely in your browser — no frames are uploaded. It's ~3MB of WASM, fetched from jsDelivr on first load and cached after. If no face is detected the photo is still saved, just unaligned.
+
 ## Privacy
 Everything lives in your browser's IndexedDB, on your device. Nothing is uploaded. The only network call is an anonymous OpenStreetMap lookup to turn coordinates into a place name.
 
