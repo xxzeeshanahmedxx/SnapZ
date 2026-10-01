@@ -101,6 +101,34 @@ export async function pull({ hasDay, putDay, onProgress } = {}) {
   return { added, updated, skipped };
 }
 
+/* ---- passcode auth ---- */
+export async function authStatus() {
+  const r = await fetch(`${apiBase()}/api/auth/status`);
+  if (!r.ok) throw new Error(r.status);
+  return r.json();                       // { configured: bool }
+}
+export async function login(passcode) {
+  const r = await fetch(`${apiBase()}/api/auth/login`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ passcode })
+  });
+  const d = await r.json();
+  if (!r.ok) throw new Error(d.error || 'login failed');
+  setToken(d.token);                     // long-lived signed session token
+  return d;
+}
+export async function changePasscode(current, next) {
+  const r = await fetch(`${apiBase()}/api/auth/change`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ current, next })
+  });
+  const d = await r.json();
+  if (!r.ok) throw new Error(d.error || 'failed');
+  setToken(d.token);
+  return d;
+}
+export const logout = () => localStorage.removeItem(TKEY);
+
 export async function remoteList() {
   const r = await fetch(`${apiBase()}/api/snaps`, { headers: { authorization: `Bearer ${getToken()}` } });
   if (!r.ok) throw new Error(r.status);

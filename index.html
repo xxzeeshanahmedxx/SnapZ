@@ -40,6 +40,20 @@
   </div>
 </section>
 
+<!-- ================= LOGIN ================= -->
+<section id="login" class="screen lock" hidden>
+  <div class="lock-box">
+    <div class="lock-logo"></div>
+    <h1 id="lockTitle">Enter passcode</h1>
+    <p id="lockSub">Unlock cloud backup on this device</p>
+    <input id="lockPass" type="password" inputmode="text" autocomplete="current-password"
+           placeholder="Passcode" enterkeyhint="go">
+    <p id="lockErr" class="lock-err" hidden></p>
+    <button id="lockGo" class="pill wide">Continue</button>
+    <button id="lockSkip" class="linkish">Use this device without backup</button>
+  </div>
+</section>
+
 <!-- ================= GALLERY ================= -->
 <section id="gal" class="screen">
   <header class="ghead">

@@ -64,12 +64,17 @@ never contains your resource IDs. For local development put `SNAPZ_TOKEN=...` in
 
 Wrangler prints a URL like `https://snapz-api.<you>.workers.dev`.
 
-### Point the app at it
-In SnapZ, **long-press the gallery thumbnail** (~0.7s) and enter:
-1. the Worker URL
-2. the same `SNAPZ_TOKEN`
+### Signing in
+SnapZ shows a **passcode screen** on first run. The first passcode ever entered
+**claims the account**; after that it's the password on every device.
 
-Both are stored in `localStorage`. Existing unsynced days upload immediately.
+- The passcode is never stored — only a **PBKDF2-SHA256 hash (100k iterations, random salt)** in D1.
+- A successful login returns an **HMAC-signed session token, valid 1 year**, kept in `localStorage`.
+  You don't retype anything on that device again.
+- `SNAPZ_TOKEN` still works directly as a break-glass admin credential.
+- Signing in on a device that has no photos automatically offers to **restore** from the cloud.
+
+Long-press the gallery button for `restore` · `passcode` (change it) · `signout` · `api`.
 
 ### Optional: serve images straight from R2
 Cheaper and faster than proxying through the Worker. Attach a custom domain to the

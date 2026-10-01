@@ -306,16 +306,55 @@ const flush = () => cloud.flush(recordForDay, async day => {
 });
 window.addEventListener('snapz:flush', flush);
 
-/* Long-press the gallery button to configure the backend. */
+/* ---- login screen ---- */
+async function showLogin() {
+  let first = false;
+  try { first = !(await cloud.authStatus()).configured; } catch {}
+  $('lockTitle').textContent = first ? 'Choose a passcode' : 'Enter passcode';
+  $('lockSub').textContent   = first
+    ? 'You only set this once. It unlocks your backup on any device.'
+    : 'Unlock cloud backup on this device';
+  $('lockPass').setAttribute('autocomplete', first ? 'new-password' : 'current-password');
+  $('lockErr').hidden = true;
+  $('lockPass').value = '';
+  $('login').hidden = false;
+  setTimeout(() => $('lockPass').focus(), 120);
+}
+async function doLogin() {
+  const pass = $('lockPass').value.trim();
+  if (pass.length < 4) { $('lockErr').textContent = 'At least 4 characters'; $('lockErr').hidden = false; return; }
+  $('lockGo').disabled = true; $('lockGo').textContent = 'Checking…';
+  try {
+    const res = await cloud.login(pass);
+    $('login').hidden = true;
+    await flush();
+    if (!res.created) restore();          // existing account → pull the archive
+  } catch (e) {
+    $('lockErr').textContent = String(e.message || e);
+    $('lockErr').hidden = false;
+  } finally {
+    $('lockGo').disabled = false; $('lockGo').textContent = 'Continue';
+  }
+}
+$('lockGo').onclick = doLogin;
+$('lockPass').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+$('lockSkip').onclick = () => { $('login').hidden = true; localStorage.setItem('snapz_nocloud', '1'); };
+
+/* Long-press the gallery button: sign in / out, or restore. */
 let pressTimer = null;
 $('toGallery').addEventListener('pointerdown', () => {
-  pressTimer = setTimeout(() => {
+  pressTimer = setTimeout(async () => {
     pressTimer = null;
-    const api = prompt('SnapZ API URL', cloud.apiBase());
-    if (api) cloud.setApi(api);
-    const t = prompt('Access token (set with: wrangler secret put SNAPZ_TOKEN)', cloud.getToken());
-    if (t) { cloud.setToken(t); flush(); }
-    if (confirm('Restore photos from the cloud onto this device?')) restore();
+    if (!cloud.getToken()) { localStorage.removeItem('snapz_nocloud'); return showLogin(); }
+    const choice = prompt('Type: restore · passcode · signout · api', '');
+    if (choice === 'restore') restore();
+    else if (choice === 'signout') { cloud.logout(); showLogin(); }
+    else if (choice === 'api') { const u = prompt('API URL', cloud.apiBase()); if (u) cloud.setApi(u); }
+    else if (choice === 'passcode') {
+      const cur = prompt('Current passcode'); const nxt = prompt('New passcode');
+      if (cur && nxt) cloud.changePasscode(cur, nxt).then(() => alert('Passcode changed'))
+        .catch(e => alert(e.message));
+    }
   }, 700);
 });
 ['pointerup','pointerleave','pointercancel'].forEach(ev =>
@@ -460,7 +499,10 @@ addEventListener('offline', () => load());
    archive, so ask for persistent storage up front. */
 if (navigator.storage?.persist) navigator.storage.persist().catch(() => {});
 
-load().then(flush);
+load().then(async () => {
+  if (!cloud.getToken() && !localStorage.getItem('snapz_nocloud')) showLogin();
+  else flush();
+});
 startCam();
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && !stream) startCam();

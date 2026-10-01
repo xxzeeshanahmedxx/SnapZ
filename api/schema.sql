@@ -22,3 +22,10 @@ CREATE TABLE IF NOT EXISTS snaps (
 );
 
 CREATE INDEX IF NOT EXISTS idx_snaps_ts ON snaps(ts DESC);
+
+-- Key/value config. Holds the salted hash of your passcode, so the passcode
+-- itself is never stored anywhere and can be changed from inside the app.
+CREATE TABLE IF NOT EXISTS config (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);

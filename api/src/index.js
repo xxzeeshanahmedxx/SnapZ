@@ -20,12 +20,68 @@ const cors = () => ({
   'access-control-allow-headers': 'authorization,content-type'
 });
 
-/* Shared-secret auth. Set with:  wrangler secret put SNAPZ_TOKEN  */
-const authed = (req, env) => {
-  const h = req.headers.get('authorization') || '';
-  const t = h.startsWith('Bearer ') ? h.slice(7) : '';
-  return env.SNAPZ_TOKEN && t && t === env.SNAPZ_TOKEN;
+/* ---------------------------------------------------------------
+   Auth: you type a passcode you chose; the device gets a long-lived
+   signed session token. The passcode is never stored — only a salted
+   PBKDF2 hash of it, in D1. SNAPZ_TOKEN is the signing key (and still
+   works directly, as a break-glass admin credential).
+   --------------------------------------------------------------- */
+const enc = new TextEncoder();
+const b64u = buf => btoa(String.fromCharCode(...new Uint8Array(buf)))
+  .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const unb64u = s => Uint8Array.from(
+  atob(s.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
+
+async function hashPass(pass, saltHex) {
+  const salt = saltHex
+    ? Uint8Array.from(saltHex.match(/../g).map(h => parseInt(h, 16)))
+    : crypto.getRandomValues(new Uint8Array(16));
+  const key = await crypto.subtle.importKey('raw', enc.encode(pass), 'PBKDF2', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' }, key, 256);
+  const hex = [...new Uint8Array(bits)].map(b => b.toString(16).padStart(2, '0')).join('');
+  const sh = [...salt].map(b => b.toString(16).padStart(2, '0')).join('');
+  return `${sh}:${hex}`;
+}
+const timingSafe = (a, b) => {
+  if (a.length !== b.length) return false;
+  let d = 0; for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return d === 0;
 };
+
+async function signToken(env, days = 365) {
+  const body = b64u(enc.encode(JSON.stringify({ exp: Date.now() + days * 864e5 })));
+  const key = await crypto.subtle.importKey('raw', enc.encode(env.SNAPZ_TOKEN),
+    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const sig = await crypto.subtle.sign('HMAC', key, enc.encode(body));
+  return `${body}.${b64u(sig)}`;
+}
+async function verifyToken(env, tok) {
+  const [body, sig] = (tok || '').split('.');
+  if (!body || !sig) return false;
+  const key = await crypto.subtle.importKey('raw', enc.encode(env.SNAPZ_TOKEN),
+    { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']);
+  const ok = await crypto.subtle.verify('HMAC', key, unb64u(sig), enc.encode(body));
+  if (!ok) return false;
+  try { return JSON.parse(new TextDecoder().decode(unb64u(body))).exp > Date.now(); }
+  catch { return false; }
+}
+
+const bearer = req => {
+  const h = req.headers.get('authorization') || '';
+  return h.startsWith('Bearer ') ? h.slice(7) : '';
+};
+const authed = async (req, env) => {
+  const t = bearer(req);
+  if (!t || !env.SNAPZ_TOKEN) return false;
+  if (timingSafe(t, env.SNAPZ_TOKEN)) return true;    // admin token
+  return verifyToken(env, t);                          // session token
+};
+
+const getCfg = (env, k) => env.DB.prepare('SELECT value FROM config WHERE key = ?').bind(k).first();
+const setCfg = (env, k, v) => env.DB.prepare(
+  'INSERT INTO config (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value'
+).bind(k, v).run();
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -52,7 +108,45 @@ export default {
     }
 
     if (!p.startsWith('/api/')) return new Response('SnapZ API', { status: 200, headers: cors() });
-    if (!authed(req, env)) return json({ error: 'unauthorized' }, 401);
+
+    /* ---- is a passcode set yet? (lets the app show Create vs Enter) ---- */
+    if (p === '/api/auth/status' && req.method === 'GET') {
+      const row = await getCfg(env, 'passcode');
+      return json({ configured: !!row });
+    }
+
+    /* ---- log in, or claim the account on first use ---- */
+    if (p === '/api/auth/login' && req.method === 'POST') {
+      const { passcode } = await req.json().catch(() => ({}));
+      if (!passcode || String(passcode).length < 4)
+        return json({ error: 'passcode must be at least 4 characters' }, 400);
+
+      const row = await getCfg(env, 'passcode');
+      if (!row) {                                   // first ever login sets it
+        await setCfg(env, 'passcode', await hashPass(String(passcode)));
+        return json({ ok: true, created: true, token: await signToken(env) });
+      }
+      const [salt] = row.value.split(':');
+      const attempt = await hashPass(String(passcode), salt);
+      if (!timingSafe(attempt, row.value)) return json({ error: 'wrong passcode' }, 401);
+      return json({ ok: true, token: await signToken(env) });
+    }
+
+    /* ---- change the passcode (requires the current one) ---- */
+    if (p === '/api/auth/change' && req.method === 'POST') {
+      const { current, next } = await req.json().catch(() => ({}));
+      const row = await getCfg(env, 'passcode');
+      if (row) {
+        const [salt] = row.value.split(':');
+        if (!timingSafe(await hashPass(String(current || ''), salt), row.value))
+          return json({ error: 'wrong passcode' }, 401);
+      }
+      if (!next || String(next).length < 4) return json({ error: 'too short' }, 400);
+      await setCfg(env, 'passcode', await hashPass(String(next)));
+      return json({ ok: true, token: await signToken(env) });
+    }
+
+    if (!(await authed(req, env))) return json({ error: 'unauthorized' }, 401);
 
     try {
       /* ---------- list ---------- */

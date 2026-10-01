@@ -77,3 +77,21 @@ a{color:#fff}
   background:linear-gradient(to top,rgba(0,0,0,.85),transparent)}
 .lapse-bar input{flex:1;accent-color:#fff}
 .ghead-r{display:flex;gap:2px}
+
+
+/* ---------- login ---------- */
+.lock{background:#000;display:flex !important;align-items:center;justify-content:center;padding:24px;z-index:60}
+.lock[hidden]{display:none !important}
+.lock-box{width:100%;max-width:320px;text-align:center}
+.lock-logo{width:64px;height:64px;margin:0 auto 22px;border-radius:50%;
+  border:3px solid #fff;position:relative}
+.lock-logo:after{content:'';position:absolute;inset:9px;border-radius:50%;background:#fff}
+.lock-box h1{font-size:21px;font-weight:600;margin:0 0 6px}
+.lock-box p{margin:0 0 22px;font-size:14px;color:#8b909b}
+.lock-box input{width:100%;padding:14px 16px;border-radius:13px;background:#14161b;
+  border:1px solid #262a33;color:#fff;font-size:17px;text-align:center;letter-spacing:.5px}
+.lock-box input:focus{outline:none;
+.lock-box input:focus{outline:none;border-color:#4b5563}
+.pill.wide{width:100%;margin-top:14px;padding:14px}
+.linkish{display:block;width:100%;margin-top:16px;color:#6b7280;font-size:13px;text-decoration:underline}
+.lock-err{color:#ff5d6c !important;margin:12px 0 0 !important;font-size:13px}
