@@ -15,17 +15,18 @@ No stats, no forms, no "save" step, nothing on screen but the viewfinder. Behind
 - **Export** (↓ icon in the gallery) — the full archive as JSON: dates, times, coordinates, place names and the images themselves.
 
 ## Image quality
-Cheap phone sensors are noisy, soft and badly white-balanced. Every snap runs through a pipeline that fixes what software can:
+The goal is **the photo your phone took, minus the noise and the dullness** — no skin smoothing, no beauty filter, no saturation pumping.
 
-1. **Full-resolution stills** — uses `ImageCapture.takePhoto()` to pull a real photo from the camera's own ISP at maximum megapixels, instead of grabbing a low-res preview frame. Biggest single win.
-2. **Continuous autofocus / auto-exposure / auto-white-balance** forced on via track constraints.
-3. **Multi-frame noise reduction** — where stills aren't supported, 5 frames are captured and averaged. Noise is random and cancels out; your face doesn't. Same principle as phone "night mode".
-4. **Gray-world white balance** — removes the orange indoor-bulb cast.
-5. **Auto levels + shadow lift** — stretches a flat, milky histogram to full contrast without blowing highlights.
-6. **Unsharp mask on luminance only** — restores detail from a soft lens without amplifying colour noise.
-7. **Gentle saturation**, then saved at JPEG quality 0.95.
+1. **Full-resolution stills** — `ImageCapture.takePhoto()` pulls a real photo from the camera's ISP at max megapixels instead of grabbing a low-res preview frame.
+2. **Continuous autofocus / exposure / white balance** forced on via track constraints.
+3. **Multi-frame noise reduction** — where stills aren't supported, 3 frames are averaged. Noise is random and cancels; detail doesn't move.
+4. **Chroma denoise** — sensor noise is mostly coloured speckle in the shadows. The colour channels are smoothed while **luminance is left completely untouched**, so grain disappears and not one real detail softens. Measured: 85% less colour noise, edge contrast unchanged (140.9 → 140.7).
+5. **Gentle white balance** (35% strength) — removes an obvious indoor cast without shifting skin tone.
+6. **Partial auto-levels** (70% of the full stretch, 1.04 shadow lift) — fixes dullness, stops short of looking processed.
+7. **Clamped unsharp** (±12 levels, luma only) — undoes capture softness without halos or crunch.
+8. Saturation is **off**. Saved at JPEG 0.95.
 
-All of it is silent and automatic. Tuning lives at the top of `enhance.js`.
+Everything runs in a Web Worker so the shutter never blocks. All constants are the defaults at the top of `enhance()` in `enhance.js` — set `sharpen: 0` or `chroma: 0` to disable a stage.
 
 ## Privacy
 Everything lives in your browser's IndexedDB, on your device. Nothing is uploaded. The only network call is an anonymous OpenStreetMap lookup to turn coordinates into a place name.

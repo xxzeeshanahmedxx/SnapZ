@@ -42,13 +42,17 @@ function boxBlur(src, dst, w, h, r) {
    Pass 2 : apply white balance + auto levels via a lookup table, then
             unsharp mask on luminance, then saturation — all in one loop. */
 export function enhance(imgData, w, h, opt = {}) {
+  /* Defaults are tuned for FIDELITY, not flattery: no saturation boost,
+     no skin smoothing, no heavy curves. Just noise and dullness. */
   const {
-    wbStrength = 0.8,      // 0 = off, 1 = full gray-world correction
-    clip       = 0.004,    // histogram tails ignored when stretching
-    lift       = 1.12,     // shadow lift gamma
-    sharpen    = 0.55,     // unsharp amount
-    radius     = 1,        // unsharp radius
-    sat        = 1.08      // saturation
+    wbStrength = 0.35,     // gentle cast removal only; 0.8+ starts shifting skin tone
+    clip       = 0.002,    // histogram tails ignored when stretching
+    lift       = 1.04,     // barely-there shadow lift
+    maxStretch = 0.7,      // never apply more than 70% of the full contrast stretch
+    sharpen    = 0.3,      // just enough to undo capture softness
+    radius     = 1,
+    sat        = 1.0,      // OFF — your real colours
+    chroma     = 2         // colour-noise denoise radius (0 = off). Luma untouched.
   } = opt;
 
   const d = imgData.data, px = w * h, len = px * 4;
@@ -79,15 +83,44 @@ export function enhance(imgData, w, h, opt = {}) {
   const inv = 1 / lift, span = hi - lo;
   const build = (lut, k) => {
     for (let v = 0; v < 256; v++) {
-      let t = v * k;
-      if (stretch) t = Math.min(255, Math.max(0, ((t - lo) / span) * 255));
-      lut[v] = stretch ? Math.pow(t / 255, inv) * 255 : Math.min(255, t);
+      const base = Math.min(255, v * k);               // white balance
+      let out = base;
+      if (stretch) {
+        const full = Math.min(255, Math.max(0, ((base - lo) / span) * 255));
+        const curved = Math.pow(full / 255, inv) * 255;
+        out = base + (curved - base) * maxStretch;     // partial, so it stays natural
+      }
+      lut[v] = out;
     }
   };
   build(lutR, kr); build(lutG, kg); build(lutB, kb);
 
   for (let i = 0; i < len; i += 4) {
     d[i] = lutR[d[i]]; d[i + 1] = lutG[d[i + 1]]; d[i + 2] = lutB[d[i + 2]];
+  }
+
+  /* --- colour-noise denoise ---
+     Sensor noise is mostly chroma: coloured speckles in shadows. Blurring the
+     colour channels while leaving luminance completely untouched removes the
+     speckle WITHOUT softening a single real detail — no plastic skin. */
+  if (chroma > 0) {
+    const cb = new Float32Array(px), cr = new Float32Array(px);
+    const cbB = new Float32Array(px), crB = new Float32Array(px);
+    const y = new Float32Array(px);
+    for (let i = 0, p = 0; i < len; i += 4, p++) {
+      const R = d[i], G = d[i + 1], B = d[i + 2];
+      y[p]  =  0.299 * R + 0.587 * G + 0.114 * B;
+      cb[p] = B - y[p];
+      cr[p] = R - y[p];
+    }
+    boxBlur(cb, cbB, w, h, chroma);
+    boxBlur(cr, crB, w, h, chroma);
+    for (let i = 0, p = 0; i < len; i += 4, p++) {
+      const Y = y[p], B = Y + cbB[p], R = Y + crB[p];
+      d[i]     = R;
+      d[i + 2] = B;
+      d[i + 1] = (Y - 0.299 * R - 0.114 * B) / 0.587;   // rebuild green from luma
+    }
   }
 
   /* --- unsharp mask on luminance only (no colour-noise amplification) --- */
@@ -97,7 +130,8 @@ export function enhance(imgData, w, h, opt = {}) {
       lum[p] = d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114;
     boxBlur(lum, blur, w, h, radius);
     for (let i = 0, p = 0; i < len; i += 4, p++) {
-      const diff = (lum[p] - blur[p]) * sharpen;
+      let diff = (lum[p] - blur[p]) * sharpen;
+      if (diff > 12) diff = 12; else if (diff < -12) diff = -12;   // no halos / crunch
       if (diff !== 0) {
         d[i]     = d[i]     + diff;
         d[i + 1] = d[i + 1] + diff;
