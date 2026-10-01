@@ -296,10 +296,12 @@ $('btnWipe').onclick = async () => {
 refresh();
 $('mTime').textContent = fmtTime(Date.now());
 
-if (inFrame) {
+if (inFrame && !sessionStorage.getItem('warnOff')) {
   $('sandboxWarn').hidden = false;
   $('openTab').href = location.href;
 }
+$('warnX').onclick = () => { $('sandboxWarn').hidden = true; sessionStorage.setItem('warnOff', '1'); };
+document.addEventListener('keydown', e => { if (e.key === 'Escape') $('lbClose').onclick(); });
 // auto-start the camera as soon as the page loads
 startCam();
 document.addEventListener('visibilitychange', () => {

@@ -97,3 +97,10 @@ a.btn{text-decoration:none;display:inline-block}
 .warn span{color:#b4a6c8}
 .stage-msg b{display:block;font-size:15px;color:var(--txt);margin-bottom:6px}
 label.btn{cursor:pointer}
+
+/* make the hidden attribute win over any display rule above */
+[hidden]{display:none !important}
+.warn{position:relative;padding-right:40px}
+.warn-x{position:absolute;top:8px;right:8px;background:none;border:0;color:#b4a6c8;
+  font-size:20px;line-height:1;cursor:pointer;padding:4px 8px;border-radius:8px}
+.warn-x:hover{background:rgba(255,255,255,.08);color:#fff}
