@@ -18,7 +18,7 @@ try {
     const j = jobs.get(e.data.id);
     if (!j) return;
     jobs.delete(e.data.id);
-    j(e.data.blob || null);
+    j(e.data.error ? null : e.data);
   };
 } catch { worker = null; }
 
@@ -190,9 +190,16 @@ async function capture() {
     busy = false; $('shutter').disabled = false;   // camera is usable again now
 
     const bmp = await createImageBitmap(cv);
-    const better = worker ? await enhanceInWorker(bmp)
-                          : await enhanceOnMain(cv);
-    if (better) { rec.blob = better; await dbPut(rec); urls.delete(rec.id); await load(); }
+    const res = worker ? await enhanceInWorker(bmp) : await enhanceOnMain(cv);
+    if (res?.blob) {
+      rec.blob = res.blob;
+      rec.type = res.blob.type || rec.type;
+      rec.w = res.w ?? rec.w; rec.h = res.h ?? rec.h;
+      rec.bytes = res.blob.size;
+      await dbPut(rec);
+      urls.delete(rec.id);
+      await load();
+    }
   } finally {
     busy = false; $('shutter').disabled = false;
   }
@@ -204,7 +211,9 @@ async function enhanceOnMain(cv) {
   const img = g.getImageData(0, 0, cv.width, cv.height);
   enhance(img, cv.width, cv.height);
   g.putImageData(img, 0, 0);
-  return new Promise(r => cv.toBlob(r, 'image/jpeg', 0.95));
+  const tryType = (type, q) => new Promise(r => cv.toBlob(b => r(b && b.type === type ? b : null), type, q));
+  const blob = await tryType('image/webp', 0.90) || await tryType('image/jpeg', 0.95);
+  return { blob, w: cv.width, h: cv.height };
 }
 
 function toCanvas(src, w, h, mirror) {
@@ -240,7 +249,7 @@ $('pick').onchange = async e => { const f = e.target.files[0]; if (f) await save
 async function save(blob, ts) {
   const rec = { id:'s'+ts+Math.random().toString(36).slice(2,6), ts, day:dayKey(ts),
     lat:lastPos?.lat ?? null, lon:lastPos?.lon ?? null, acc:lastPos?.acc ?? null,
-    place:'', blob, type:'image/jpeg' };
+    place:'', blob, type: blob.type || 'image/jpeg', bytes: blob.size };
   await dbPut(rec);
   await load();
   /* reverse-geocode without making the shutter wait on the network */
@@ -253,7 +262,11 @@ async function save(blob, ts) {
 /* ================= GALLERY ================= */
 async function load() {
   snaps = (await dbAll()).sort((a, b) => b.ts - a.ts);
-  $('gcount').textContent = snaps.length ? snaps.length + (snaps.length === 1 ? ' snap' : ' snaps') : '';
+  const bytes = snaps.reduce((n, s) => n + (s.bytes || s.blob?.size || 0), 0);
+  const mb = bytes / 1048576;
+  $('gcount').textContent = snaps.length
+    ? `${snaps.length} ${snaps.length === 1 ? 'snap' : 'snaps'} · ${mb < 1024 ? mb.toFixed(mb < 10 ? 1 : 0) + ' MB' : (mb / 1024).toFixed(1) + ' GB'}`
+    : '';
   const t = $('toGallery');
   if (snaps[0]) { t.style.backgroundImage = `url(${urlFor(snaps[0])})`;
     t.classList.remove('pop'); void t.offsetWidth; t.classList.add('pop'); }
@@ -281,7 +294,8 @@ function openViewer(s) {
   $('vMap').hidden = s.lat == null;
   if (s.lat != null) $('vMap').href = `https://www.openstreetmap.org/?mlat=${s.lat}&mlon=${s.lon}#map=17/${s.lat}/${s.lon}`;
   $('vOpen').href = u;
-  $('vDl').href = u; $('vDl').download = `snapz-${s.day}-${new Date(s.ts).toTimeString().slice(0,5).replace(':','')}.jpg`;
+  const ext = (s.type || 'image/jpeg').split('/')[1].replace('jpeg', 'jpg');
+  $('vDl').href = u; $('vDl').download = `snapz-${s.day}-${new Date(s.ts).toTimeString().slice(0,5).replace(':','')}.${ext}`;
   $('viewer').hidden = false;
 }
 $('vClose').onclick = () => { $('viewer').hidden = true; cur = null; };
@@ -369,6 +383,10 @@ document.addEventListener('keydown', e => {
 });
 
 /* ---------------- go ---------------- */
+/* Browsers may evict IndexedDB under storage pressure. This is a decades-long
+   archive, so ask for persistent storage up front. */
+if (navigator.storage?.persist) navigator.storage.persist().catch(() => {});
+
 load();
 startCam();
 document.addEventListener('visibilitychange', () => {

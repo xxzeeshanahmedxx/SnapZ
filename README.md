@@ -24,7 +24,15 @@ The goal is **the photo your phone took, minus the noise and the dullness** — 
 5. **Gentle white balance** (35% strength) — removes an obvious indoor cast without shifting skin tone.
 6. **Partial auto-levels** (70% of the full stretch, 1.04 shadow lift) — fixes dullness, stops short of looking processed.
 7. **Clamped unsharp** (±12 levels, luma only) — undoes capture softness without halos or crunch.
-8. Saturation is **off**. Saved at JPEG 0.95.
+8. Saturation is **off**.
+
+### Compression
+Full resolution is always preserved — only the codec changes, never the pixels.
+
+- Encodes to **WebP q0.90**, falling back to JPEG q0.95 if unsupported. Same visual quality, typically **30–50% smaller files**.
+- If a photo still exceeds a 1.5 MB budget, quality steps down in 0.04 increments — but **never below 0.82**, so quality always wins over size.
+- Denoising runs *before* encoding: clean pixels compress dramatically better, so noise reduction is itself a compression win.
+- The gallery header shows your total library size, and persistent storage is requested so the browser can't evict the archive.
 
 Everything runs in a Web Worker so the shutter never blocks. All constants are the defaults at the top of `enhance()` in `enhance.js` — set `sharpen: 0` or `chroma: 0` to disable a stage.
 
