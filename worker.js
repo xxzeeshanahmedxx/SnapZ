@@ -34,6 +34,19 @@ async function encodeBest(cv, preferAvif) {
   return cv.convertToBlob({ type: 'image/jpeg', quality: 0.92 });  // last resort
 }
 
+/* A small thumbnail is what makes the gallery feel instant: the grid loads
+   ~20 KB per photo instead of ~500 KB. */
+const THUMB = 400;
+async function makeThumb(cv) {
+  const s = THUMB / Math.max(cv.width, cv.height);
+  if (s >= 1) return cv.convertToBlob({ type: 'image/webp', quality: 0.8 });
+  const t = new OffscreenCanvas(Math.round(cv.width * s), Math.round(cv.height * s));
+  const g = t.getContext('2d');
+  g.imageSmoothingQuality = 'high';
+  g.drawImage(cv, 0, 0, t.width, t.height);
+  return t.convertToBlob({ type: 'image/webp', quality: 0.8 });
+}
+
 self.onmessage = async e => {
   const { id, bitmap, avif = false } = e.data;
   try {
@@ -47,8 +60,8 @@ self.onmessage = async e => {
     enhance(img, w, h);          // denoise first — clean pixels compress far better
     g.putImageData(img, 0, 0);
 
-    const blob = await encodeBest(cv, avif);
-    self.postMessage({ id, blob, type: blob.type, w, h });
+    const [blob, thumb] = await Promise.all([encodeBest(cv, avif), makeThumb(cv)]);
+    self.postMessage({ id, blob, thumb, type: blob.type, w, h });
   } catch (err) {
     self.postMessage({ id, error: String(err) });
   }

@@ -1,7 +1,8 @@
 /* SnapZ service worker — the app shell works with no connection at all.
-   Photos live in IndexedDB (not here), so the camera is fully usable offline. */
+   Photos come from R2 and are cached on first view; only failed uploads are
+   held locally, in the outbox. */
 
-const VERSION = 'snapz-v5';
+const VERSION = 'snapz-v6';
 const SHELL = [
   './',
   './index.html',
@@ -9,7 +10,7 @@ const SHELL = [
   './app.js',
   './enhance.js',
   './worker.js',
-  './sync.js',
+  './api.js',
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png'

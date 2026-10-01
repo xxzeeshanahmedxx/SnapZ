@@ -1,239 +1,77 @@
-# SnapZ — structure
+# SnapZ — what is connected to what
 
-A static, dependency-free web app. **5 files, ~780 lines, 48 KB total.** No build step, no framework, no server, no npm install. You could open it in Notepad and understand the whole thing.
-
-```
-SnapZ/
-├── index.html      97 lines   markup: 4 screens + the viewfinder
-├── styles.css      79 lines   dark UI, safe-area aware, no external fonts
-├── app.js         395 lines   the application (ES module)
-├── worker.js       55 lines   background thread: processing + encoding
-├── enhance.js     153 lines   the image pipeline (pure functions, no DOM)
-├── README.md                  what it is and how to run it
-└── ARCHITECTURE.md            this file
-```
-
----
-
-## 1. The four screens
-
-All four live in one HTML document as `<section class="screen">`. Only one is visible
-at a time — there is no router, no navigation, no page loads.
-
-| Screen | id | What it is |
-|---|---|---|
-| **Camera** | `#cam` | Fullscreen `<video>` + white shutter, gallery thumb, flip button |
-| **Gallery** | `#gal` | 3-column grid of every snap, header shows count + library size |
-| **Viewer** | `#viewer` | One photo fullscreen, with the hidden metadata revealed |
-| **Time-lapse** | `#lapse` | Plays all snaps oldest→newest, with a speed slider and video export |
-
-Switching is one line — `show(id)` toggles a single `.on` class.
-`#viewer` and `#lapse` are overlays, toggled with the `hidden` attribute
-(backed by `[hidden]{display:none !important}`, the bug from earlier).
-
----
-
-## 2. The three threads
-
-This is the important part of the design.
+A daily selfie camera. One photo per day, stored in the cloud, with the time and
+place recorded silently and shown only in the gallery viewer.
 
 ```
-  MAIN THREAD                    WORKER THREAD              BROWSER/OS
-  ───────────                    ─────────────              ──────────
-  tap shutter
+  PHONE                                CLOUDFLARE
+  ─────                                ──────────
+  index.html   markup, every screen
       │
-      ├─ grab frame ─────────────────────────────────────── camera ISP
-      │   (ImageCapture.takePhoto, full megapixels)
+      ├─ styles.css
       │
-      ├─ encode raw JPEG
-      ├─ write to IndexedDB  ◄── SAVE HAPPENS HERE ──► photo is already safe
-      ├─ update gallery + thumbnail
-      └─ shutter re-enabled          ~instant
+      ├─ app.js ──────── camera, gallery, viewer, time-lapse, day gate
+      │     │
+      │     ├─ worker.js ──── background thread: burst average, denoise,
+      │     │     └ enhance.js   white balance, levels, WebP encode + thumbnail
+      │     │
+      │     └─ api.js ─────── the ONLY code that touches the network
+      │            │                     │
+      │            │  POST /api/snap ────┼──▶ Worker (api/src/index.js)
+      │            │  GET  /api/snaps ───┤        │
+      │            │  DELETE /api/snap/… ┤        ├──▶ R2  snapz-photos   (bytes)
+      │            │                     │        └──▶ D1  snapz          (metadata)
+      │            └─ outbox (IndexedDB) — failed uploads only
       │
-      └─ postMessage(bitmap) ──────► enhance()
-         (transferred, zero-copy)      denoise
-                                       white balance
-                                       levels
-                                       sharpen
-                                         │
-                                       encodeBest()
-                                       WebP q.90 → size check → retry
-                                         │
-         swap blob in DB  ◄──────────── postMessage(blob)
-         refresh gallery
+      └─ sw.js ──── caches the app shell so the camera opens offline
 ```
 
-**Why it matters:** the photo is saved and the camera is usable again *before* any
-processing starts. Earlier this was all sequential on the main thread — that was the
-7-second freeze. The heavy work now happens on another core and the result is swapped
-in silently when ready.
+## 1. Capture
+`app.js` holds the camera open with `getUserMedia`. Tapping the shutter grabs a
+burst of 3 frames, hands them to `worker.js` on a background thread so the UI
+never freezes, and gets back two blobs: the **full image** (WebP q0.90, same
+pixel dimensions as the sensor — never downscaled) and a **~400 px thumbnail**.
 
----
+The shutter re-enables as soon as the encode finishes. Reverse-geocoding and the
+upload happen afterwards, so there is no waiting.
 
-## 3. Data flow of a single snap
+## 2. Upload
+`api.js` posts both blobs in one multipart request. The Worker writes them to R2
+**in parallel** and upserts one row in D1 keyed by the local date — re-shooting
+on the same day replaces that day instead of adding a second entry.
 
-```
-camera sensor
-   └─ ImageCapture.takePhoto()  ← full resolution, phone's own ISP
-        └─ aspect-ratio sanity check  ← rejects distorted frames (the "thin face" fix)
-             └─ fallback: burst of 3 frames, averaged  ← cancels random noise
-                  └─ mirror if front camera
-                       └─ save raw → IndexedDB → UI updates
-                            └─ worker: enhance() → encodeBest() → WebP
-                                 └─ replace blob in IndexedDB
-```
+If the request fails, the record goes to the **outbox** (IndexedDB) and is
+retried on the next launch or when the device comes back online. The outbox is
+the only local copy and it is deleted the moment the upload lands.
 
-Running in parallel, never blocking the shutter:
-- `watchPosition()` keeps a GPS fix warm so coordinates are instant at capture time
-- reverse-geocoding (OpenStreetMap) fills in the place name afterwards
+## 3. Gallery — cloud only
+The grid is built from `GET /api/snaps` (D1) and nothing else. Each tile is the
+**thumbnail** (~20 KB), so a year of photos paints in a moment. The last known
+list is kept in `localStorage` purely so the grid appears instantly on open; it
+is replaced by the real response a moment later. No image is ever read from
+local storage.
 
----
+Opening a photo shows the thumbnail immediately, then swaps in the full image
+from R2 once it has loaded. R2 objects are served with a one-year immutable
+cache header, so each photo downloads once per device.
 
-## 4. What a snap actually is
+## 4. Day gate
+Instead of a lock, the gallery simply does not open except on your chosen days
+(default **Friday and Sunday**, stored in `localStorage.snapz_days`, changeable
+from the long-press menu). On a closed day the grid renders zero images, the
+thumbnail button is blank, and a screen counts down to the next open day and
+dismisses itself at midnight. **Capture is never gated** — you can always take
+the day's photo.
 
-One IndexedDB record per photo, in a single object store `snaps` keyed by `id`:
+## 5. Passcode
+Your passcode protects the **API**, not the phone. It is PBKDF2-hashed in D1;
+logging in returns a signed token kept in `localStorage` for a year. Without it,
+nobody can read your photos even with the API URL.
 
-```js
-{
-  id:    's1727788800123abc',  // timestamp + random suffix
-  ts:    1727788800123,        // epoch ms — the only time source
-  day:   '2026-10-01',         // local date, for grouping/streaks
-  lat:   31.520370,            // null if location denied
-  lon:   74.358749,
-  acc:   12,                   // GPS accuracy, metres
-  place: 'Gulberg, Lahore, Pakistan',   // reverse-geocoded, filled in late
-  blob:  Blob,                 // the actual image bytes
-  type:  'image/webp',
-  bytes: 487213,
-  w: 3000, h: 4000
-}
-```
+## 6. Storage keys
+`snapz_api`, `snapz_token`, `snapz_index` (cached list for instant paint),
+`snapz_days`, `snapz_nocloud`, plus the `snapz-outbox` IndexedDB database.
 
-The `Blob` is stored directly — IndexedDB handles binary natively, so there's no
-base64 bloat (which would cost +33% size). Display URLs are created lazily via
-`URL.createObjectURL` and cached in a `Map` so the gallery doesn't leak memory.
-
----
-
-## 5. The image pipeline (`enhance.js`)
-
-Pure functions, no DOM, no dependencies — which is why it can run in a worker and
-be unit-tested in plain Node. Every pass is **O(pixels)** with no per-pixel inner loops.
-
-| Stage | What it fixes | Guard against over-processing |
-|---|---|---|
-| `averageFrames` | sensor noise | only used when a real still isn't available |
-| chroma denoise | coloured speckle | **luminance untouched** → cannot smooth skin |
-| white balance | indoor orange cast | 35% strength only |
-| auto levels | dull, flat, milky | 70% of full stretch; 0.2% tail clip |
-| unsharp mask | capture softness | clamped ±12 levels → no halos |
-| saturation | — | **off** |
-
-Statistics are gathered on a subsample (every 16th pixel on large images), and white
-balance + levels are fused into three 256-entry lookup tables, so `Math.pow` runs 768
-times instead of 36 million.
-
----
-
-## 6. Storage & privacy
-
-- **IndexedDB** holds everything. Nothing is uploaded; there is no backend and no account.
-- `navigator.storage.persist()` is requested at startup so the browser won't evict a
-  decades-long archive under disk pressure.
-- **One** network call exists in the entire app: an anonymous OpenStreetMap reverse-geocode
-  to turn coordinates into a place name. Remove `placeName()` and the app is fully offline.
-- **Export** (↓ in the gallery) writes a single JSON file containing every date, time,
-  coordinate, place name and the images themselves as base64 — your escape hatch, since
-  browser storage is tied to one device.
-
----
-
-## 7. Deliberate non-choices
-
-- **No framework.** The app is four screens and a canvas; React would be more bytes than the entire app.
-- **No build step.** Native ES modules. Edit a file, refresh, done. It will still run in 10 years.
-- **No downscaling.** Compression changes the codec, never the pixels.
-- **No text on the camera screen.** Time and place are recorded but deliberately hidden until the gallery.
-
----
-
-## 8. Backend (optional)
-
-The app is fully functional with no backend. Adding one gives durability beyond a
-single device.
-
-```
-SnapZ/
-├── sync.js              frontend: offline-first upload queue
-└── api/
-    ├── wrangler.toml    D1 + R2 bindings
-    ├── schema.sql       one table, `day` is the PRIMARY KEY
-    ├── src/index.js     the Worker (5 routes)
-    └── README.md        deploy steps
-```
-
-**Division of labour:** D1 is a *journal index* (day, time, location, image URL) —
-small, queryable, cheap. R2 holds the bytes. Never put images in D1.
-
-**Offline-first ordering** — the network is never in the critical path:
-
-```
-capture → IndexedDB → UI updates → shutter ready
-                           └→ worker: enhance + compress
-                                 └→ POST /api/snap → R2 + D1
-                                       └→ mark synced  (retry queue if offline)
-```
-
-**One image per day** is enforced in three places: `day` is the D1 primary key, the R2
-key is derived from the day (`2026-10-01.webp`), and `save()` replaces any existing
-local record for today. Re-shooting replaces; it never duplicates.
-
-Config lives in `localStorage` (`snapz_api`, `snapz_token`) — long-press the gallery
-thumbnail to set them. No token means the app simply stays local-only.
-
----
-
-## 9. Two-way sync & offline
-
-**Push** (automatic): capture → IndexedDB → UI → worker enhance → `POST /api/snap`.
-Failures queue in `localStorage` and retry on reconnect and at startup.
-
-**Pull** (`restore()`): fetches `/api/snaps`, and for each day downloads the image and
-writes it into IndexedDB. Use it on a new phone or after clearing browser data —
-long-press the gallery button and confirm the restore prompt.
-
-Conflict rule: **the newer capture wins.** A remote row only overwrites a local one when
-`remote.ts > local.ts`, so a photo taken offline is never clobbered by an older cloud
-copy. Pull is idempotent — running it twice changes nothing.
-
-| Scenario | Result |
-|---|---|
-| Fresh device, 2 days in cloud | `added: 2` |
-| Pull again immediately | `skipped: 2` — no duplicates |
-| Local copy newer than remote | local preserved |
-
-**Offline (`sw.js` + `manifest.webmanifest`)**
-- The app shell (~48 KB) is precached, so SnapZ opens instantly with no connection.
-- `/api/*` is **never** cached — stale data is worse than no data.
-- `/i/*` cloud images are cached permanently; they're immutable once written.
-- Installable: Add to Home Screen gives a fullscreen, standalone camera.
-- The camera and gallery are fully functional offline — photos go to IndexedDB and
-  upload later. The gallery header shows `offline` and `N to upload`.
-
-
----
-
-## 10. Day gate
-
-`OPEN_DAYS` (default `[0, 5]` — Sunday and Friday) gates every path that could show a
-photo: the gallery grid, the viewer, the time-lapse, and the corner thumbnail. On a
-closed day the grid renders zero images rather than hiding them with CSS, so nothing
-is in the DOM to peek at. A live countdown shows when the next window opens, and the
-gate dismisses itself automatically the moment it does.
-
-Capture is deliberately never gated — you can always add to the archive; you just
-can't browse it except on your chosen days.
-
-This is client-side (self-discipline, not a security boundary). To make it absolute,
-the same check can be added to `GET /api/snaps` in the Worker — at the cost of being
-unable to restore to a new device on a closed day.
+## 7. Removed
+Face Mesh, the stats dashboard, the PIN screen, WebAuthn/passkeys, the local
+photo store and the old `sync.js` two-way sync are all gone.
