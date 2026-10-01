@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0d12">
+<title>SnapZ — daily selfie journal</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📸</text></svg>">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand"><span class="dot"></span> SnapZ</div>
+  <nav class="tabs">
+    <button class="tab active" data-view="camera">Camera</button>
+    <button class="tab" data-view="gallery">Gallery <span id="countBadge" class="badge">0</span></button>
+  </nav>
+</header>
+
+<main>
+  <!-- ============ CAMERA ============ -->
+  <section id="view-camera" class="view active">
+    <div class="streak-row">
+      <div class="stat"><b id="statTotal">0</b><span>snaps</span></div>
+      <div class="stat"><b id="statStreak">0</b><span>day streak</span></div>
+      <div class="stat"><b id="statToday">—</b><span>today</span></div>
+    </div>
+
+    <div class="stage">
+      <video id="video" autoplay playsinline muted></video>
+      <canvas id="canvas" hidden></canvas>
+      <img id="preview" alt="preview" hidden>
+      <div id="flash" class="flash"></div>
+      <div id="stageMsg" class="stage-msg">Tap <b>Start camera</b> to begin</div>
+    </div>
+
+    <div id="metaLive" class="meta-live">
+      <div><span class="k">Time</span><span class="v" id="mTime">—</span></div>
+      <div><span class="k">Location</span><span class="v" id="mLoc">not captured</span></div>
+    </div>
+
+    <div class="controls">
+      <button id="btnStart" class="btn">Start camera</button>
+      <button id="btnFlip" class="btn ghost" disabled>Flip</button>
+      <button id="btnShot" class="btn shoot" disabled>Capture</button>
+      <button id="btnSave" class="btn primary" hidden>Save snap</button>
+      <button id="btnRetake" class="btn ghost" hidden>Retake</button>
+    </div>
+
+    <label class="geo-toggle">
+      <input type="checkbox" id="geoOn" checked> Attach GPS location
+    </label>
+    <p id="status" class="status"></p>
+  </section>
+
+  <!-- ============ GALLERY ============ -->
+  <section id="view-gallery" class="view">
+    <div class="gallery-bar">
+      <input id="search" type="search" placeholder="Search date, place or note…">
+      <button id="btnExport" class="btn ghost sm">Export JSON</button>
+      <button id="btnWipe" class="btn danger sm">Clear all</button>
+    </div>
+    <div id="grid" class="grid"></div>
+    <p id="empty" class="empty">No snaps yet. Go take your first one 👋</p>
+  </section>
+</main>
+
+<!-- ============ LIGHTBOX ============ -->
+<div id="lightbox" class="lightbox" hidden>
+  <div class="lb-inner">
+    <img id="lbImg" alt="">
+    <div class="lb-meta">
+      <h3 id="lbDate"></h3>
+      <p class="row"><span>🕒</span><span id="lbTime"></span></p>
+      <p class="row"><span>📍</span><span id="lbLoc"></span></p>
+      <p class="row"><span>🔗</span><a id="lbLink" href="#" target="_blank" rel="noopener">open image in new tab</a></p>
+      <p class="row"><span>🗺️</span><a id="lbMap" href="#" target="_blank" rel="noopener">view on map</a></p>
+      <textarea id="lbNote" placeholder="Add a note about this day…"></textarea>
+      <div class="lb-actions">
+        <button id="lbCopy" class="btn ghost sm">Copy link</button>
+        <a id="lbDl" class="btn ghost sm" download>Download</a>
+        <button id="lbDel" class="btn danger sm">Delete</button>
+        <button id="lbClose" class="btn sm">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
