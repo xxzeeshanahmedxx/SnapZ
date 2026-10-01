@@ -3,7 +3,7 @@
    network. This module pushes each day's photo up to the Worker (D1 + R2) in
    the background and retries whatever failed. */
 
-const API   = localStorage.getItem('snapz_api') || 'https://snapz-api.YOUR-SUBDOMAIN.workers.dev';
+const API   = localStorage.getItem('snapz_api') || 'https://snapz-api.xxzeeshanahmedxx.workers.dev';
 const QKEY  = 'snapz_queue';
 const TKEY  = 'snapz_token';
 

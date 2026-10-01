@@ -1,5 +1,8 @@
 # SnapZ backend — Cloudflare Worker + D1 + R2
 
+> **Live:** `https://snapz-api.xxzeeshanahmedxx.workers.dev`
+> D1 `snapz` · R2 `snapz-photos` · deployed and verified.
+
 **D1** stores one row per day. **R2** stores the image bytes. The Worker is the only
 thing that touches either.
 
