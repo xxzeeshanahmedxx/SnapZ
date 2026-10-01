@@ -65,24 +65,39 @@ async function startCam() {
     return showFallback(inFrame ? 'Camera is blocked inside this preview frame.' : 'Camera not supported here.', false);
   try {
     /* ask for the biggest sensor output the device will give us */
+    /* Ask for resolution on ONE axis only. Constraining width AND height
+       together lets the browser letterbox or squash the sensor into a shape
+       it never natively produces — that's what stretches faces. */
     stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: facing, width: { ideal: 4096 }, height: { ideal: 4096 } },
+      video: { facingMode: facing, width: { ideal: 3840 } },
       audio: false
     });
     track = stream.getVideoTracks()[0];
 
-    /* push the track to its true maximum, and turn on continuous AF/AE/AWB */
+    /* raise resolution while PINNING the camera's own aspect ratio */
     try {
       const c = track.getCapabilities?.() || {};
+      const s = track.getSettings?.() || {};
+      const nativeAR = (s.width && s.height) ? s.width / s.height : null;
       const want = {};
-      if (c.width?.max)  want.width  = c.width.max;
-      if (c.height?.max) want.height = c.height.max;
+      if (c.width?.max && c.width.max > (s.width || 0)) {
+        want.width = c.width.max;
+        if (nativeAR) want.aspectRatio = nativeAR;   // keep the shape honest
+      }
       const adv = [];
       if (c.focusMode?.includes('continuous'))        adv.push({ focusMode: 'continuous' });
       if (c.exposureMode?.includes('continuous'))     adv.push({ exposureMode: 'continuous' });
       if (c.whiteBalanceMode?.includes('continuous')) adv.push({ whiteBalanceMode: 'continuous' });
       if (adv.length) want.advanced = adv;
       if (Object.keys(want).length) await track.applyConstraints(want);
+
+      /* verify: if the result is a shape the sensor doesn't make, back off */
+      const after = track.getSettings?.() || {};
+      if (nativeAR && after.width && after.height) {
+        const gotAR = after.width / after.height;
+        if (Math.abs(gotAR - nativeAR) / nativeAR > 0.02)
+          await track.applyConstraints({ aspectRatio: nativeAR });
+      }
     } catch {}
 
     /* full-resolution stills, when the browser supports it */
@@ -120,14 +135,26 @@ async function capture() {
     /* A. real still from the camera's own pipeline — full megapixels */
     if (imgCap) {
       try {
+        /* Only request width. Pairing imageWidth.max with imageHeight.max
+           asks for a frame shape the sensor may not have, and the camera
+           stretches to fill it. */
         const caps = await imgCap.getPhotoCapabilities().catch(() => null);
+        const st = track.getSettings?.() || {};
+        const previewAR = (st.width && st.height) ? st.width / st.height : null;
         const opts = {};
-        if (caps?.imageWidth?.max)  opts.imageWidth  = caps.imageWidth.max;
-        if (caps?.imageHeight?.max) opts.imageHeight = caps.imageHeight.max;
+        if (caps?.imageWidth?.max) opts.imageWidth = caps.imageWidth.max;
         const shot = await imgCap.takePhoto(opts);
         const bmp = await createImageBitmap(shot);
-        cv = toCanvas(bmp, bmp.width, bmp.height, mirror);
-        bmp.close?.();
+
+        /* sanity check: a still whose shape disagrees with the live preview
+           means the driver distorted it — fall back to the honest frames */
+        const shotAR = bmp.width / bmp.height;
+        if (previewAR && Math.abs(shotAR - previewAR) / previewAR > 0.06) {
+          bmp.close?.(); cv = null;
+        } else {
+          cv = toCanvas(bmp, bmp.width, bmp.height, mirror);
+          bmp.close?.();
+        }
       } catch { cv = null; }
     }
 
