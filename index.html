@@ -40,21 +40,7 @@
   </div>
 </section>
 
-<!-- ================= APP LOCK (PIN) ================= -->
-<section id="pin" class="screen lock" hidden>
-  <div class="lock-box">
-    <div class="lock-logo"></div>
-    <h1 id="pinTitle">Enter PIN</h1>
-    <p id="pinSub">SnapZ is locked</p>
-    <input id="pinInput" type="password" inputmode="numeric" autocomplete="off"
-           placeholder="••••" enterkeyhint="go">
-    <p id="pinErr" class="lock-err" hidden></p>
-    <button id="pinGo" class="pill wide">Unlock</button>
-  </div>
-</section>
 
-<!-- privacy screen: hides your photos in the app switcher -->
-<div id="shade" class="shade" hidden></div>
 
 <!-- ================= LOGIN ================= -->
 <section id="login" class="screen lock" hidden>
@@ -66,13 +52,6 @@
            placeholder="Passcode" enterkeyhint="go">
     <p id="lockErr" class="lock-err" hidden></p>
     <button id="lockGo" class="pill wide">Continue</button>
-    <button id="lockBio" class="pill wide ghost bio" hidden>
-      <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
-        <path d="M12 2a9 9 0 0 0-9 9v2M21 13v-2a9 9 0 0 0-4.5-7.8"/>
-        <path d="M7 12a5 5 0 0 1 10 0v3M12 12v6M7 17v2M17 16v3"/>
-      </svg>
-      Unlock with fingerprint
-    </button>
     <button id="lockSkip" class="linkish">Use this device without backup</button>
   </div>
 </section>
@@ -95,6 +74,17 @@
   </header>
   <div id="grid" class="grid"></div>
   <p id="empty" class="empty">No snaps yet</p>
+</section>
+
+<!-- ================= DAY GATE ================= -->
+<section id="gate" class="screen lock" hidden>
+  <div class="lock-box">
+    <div class="gate-cal"><span id="gateDay">—</span></div>
+    <h1>Not today</h1>
+    <p id="gateMsg">Your photos open on Friday and Sunday.</p>
+    <p id="gateCount" class="gate-count"></p>
+    <button id="gateClose" class="pill wide">Back to camera</button>
+  </div>
 </section>
 
 <!-- ================= VIEWER ================= -->

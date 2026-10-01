@@ -4,7 +4,6 @@
 
 import { enhance, averageFrames } from './enhance.js';
 import * as cloud from './sync.js';
-import * as lock from './lock.js';
 
 const $ = id => document.getElementById(id);
 const DB = 'snapz', STORE = 'snaps';
@@ -312,11 +311,7 @@ async function showLogin(lockedOnly = false) {
   let first = false, m = null;
   try { m = await cloud.methods(); first = !m.passcode; } catch {}
 
-  /* if a fingerprint is enrolled, offer it first */
-  const bio = !!(m?.passkeys) && cloud.passkeySupported();
-  $('lockBio').hidden = !bio;
   $('lockSkip').hidden = lockedOnly;
-  if (bio) setTimeout(() => tryBiometric(true), 300);   // auto-prompt
   $('lockTitle').textContent = first ? 'Choose a passcode' : 'Enter passcode';
   $('lockSub').textContent   = first
     ? 'You only set this once. It unlocks your backup on any device.'
@@ -338,7 +333,6 @@ async function doLogin() {
     locked = false;
     await flush();
     if (!res.created) restore();          // existing account → pull the archive
-    offerPasskey();
   } catch (e) {
     $('lockErr').textContent = String(e.message || e);
     $('lockErr').hidden = false;
@@ -346,28 +340,7 @@ async function doLogin() {
     $('lockGo').disabled = false; $('lockGo').textContent = 'Continue';
   }
 }
-async function tryBiometric(silent) {
-  try {
-    await cloud.passkeyLogin();
-    $('login').hidden = true;
-    locked = false;
-    await flush();
-  } catch (e) {
-    if (!silent) { $('lockErr').textContent = String(e.message || e); $('lockErr').hidden = false; }
-  }
-}
-$('lockBio').onclick = () => tryBiometric(false);
 
-/* Offer an app lock after signing in. A PIN, not biometrics: on a shared
-   phone the enrolled finger may belong to someone else. */
-async function offerPasskey() {
-  if (lock.isSet() || localStorage.getItem('snapz_pin_asked')) return;
-  localStorage.setItem('snapz_pin_asked', '1');
-  if (!confirm('Set a PIN to lock SnapZ on this device?\n\nUse this if other people use your phone — it is separate from your phone unlock.')) return;
-  const p = prompt('Choose a PIN (4+ digits)');
-  if (!p) return;
-  try { await lock.setPin(p); alert('App lock on.'); } catch (e) { alert(e.message); }
-}
 
 $('lockGo').onclick = doLogin;
 $('lockPass').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
@@ -379,36 +352,17 @@ $('toGallery').addEventListener('pointerdown', () => {
   pressTimer = setTimeout(async () => {
     pressTimer = null;
     if (!cloud.getToken()) { localStorage.removeItem('snapz_nocloud'); return showLogin(); }
-    const choice = prompt('Type: pin · pinoff · lockwhen · restore · fingerprint · passcode · signout · api', '');
-    if (choice === 'pin') {
-      if (lock.isSet()) {
-        const cur = prompt('Current PIN'); if (cur === null) return;
-        const nxt = prompt('New PIN (4+ digits)'); if (!nxt) return;
-        try { await lock.changePin(cur, nxt); alert('PIN changed.'); } catch (e) { alert(e.message); }
-      } else {
-        const p = prompt('Set a PIN (4+ digits). Only you know this — it is not your phone unlock.');
-        if (!p) return;
-        try { await lock.setPin(p); alert('App lock on. SnapZ will ask for this PIN when reopened.'); }
-        catch (e) { alert(e.message); }
-      }
-      return;
-    }
-    if (choice === 'pinoff') {
-      const cur = prompt('Current PIN to disable the lock');
-      if (cur !== null && await lock.verify(cur)) { lock.clearPin(); alert('App lock off.'); }
-      else if (cur !== null) alert('Wrong PIN');
-      return;
-    }
-    if (choice === 'lockwhen') {
-      const v = prompt('Lock when: instant · minute · never', lock.lockWhen());
-      if (['instant','minute','never'].includes(v)) { lock.setLockWhen(v); alert('Lock set to: ' + v); }
-      return;
-    }
-    if (choice === 'fingerprint') {
-      if (!await cloud.platformAvailable()) { alert('No biometric sensor available on this device.'); return; }
-      if (!confirm('Only do this on a phone where YOUR finger/face is the one enrolled. On a shared phone, anyone enrolled in the OS could unlock. Continue?')) return;
-      try { await cloud.passkeyRegister(navigator.userAgent.slice(0, 40)); alert('Biometric unlock enabled.'); }
-      catch (e) { alert('Failed: ' + e.message); }
+    const choice = prompt('Type: days · restore · passcode · signout · api', '');
+    if (choice === 'days') {
+      const v = prompt('Which days can you view photos? e.g. sun,fri',
+                       OPEN_DAYS.map(d => DAY_NAMES[d].slice(0,3).toLowerCase()).join(','));
+      if (!v) return;
+      const map = { sun:0, mon:1, tue:2, wed:3, thu:4, fri:5, sat:6 };
+      const days = [...new Set(v.toLowerCase().split(/[,\s]+/)
+        .map(x => map[x.slice(0,3)]).filter(x => x !== undefined))].sort();
+      if (!days.length) { alert('No valid days.'); return; }
+      localStorage.setItem('snapz_days', JSON.stringify(days));
+      alert('Viewing days: ' + days.map(d => DAY_NAMES[d]).join(', ') + '. Reopen the app to apply.');
       return;
     }
     if (choice === 'restore') restore();
@@ -435,23 +389,30 @@ async function load() {
       (navigator.onLine ? '' : ' · offline')
     : (navigator.onLine ? '' : 'offline');
   const t = $('toGallery');
-  if (snaps[0]) { t.style.backgroundImage = `url(${urlFor(snaps[0])})`;
-    t.classList.remove('pop'); void t.offsetWidth; t.classList.add('pop'); }
-  else t.style.backgroundImage = '';
+  if (snaps[0] && isOpenToday()) {
+    t.classList.remove('shut');
+    t.style.backgroundImage = `url(${urlFor(snaps[0])})`;
+    t.classList.remove('pop'); void t.offsetWidth; t.classList.add('pop');
+  } else {
+    t.style.backgroundImage = '';
+    t.classList.toggle('shut', !isOpenToday());
+  }
   $('empty').hidden = snaps.length > 0;
   $('playBtn').hidden = snaps.length < 2;
   $('grid').innerHTML = '';
+  if (!isOpenToday()) return;
   snaps.forEach(s => { const i = new Image();
     i.src = urlFor(s); i.loading = 'lazy'; i.onclick = () => openViewer(s); $('grid').appendChild(i); });
 }
 const show = id => document.querySelectorAll('.screen').forEach(s =>
   (s.id === 'viewer' || s.id === 'lapse') ? 0 : s.classList.toggle('on', s.id === id));
-$('toGallery').onclick = () => show('gal');
+$('toGallery').onclick = () => { if (!isOpenToday()) return showGate(); show('gal'); };
 $('toCam').onclick = () => show('cam');
 
 /* ================= VIEWER ================= */
 let cur = null;
 function openViewer(s) {
+  if (!isOpenToday()) return showGate();
   cur = s; const u = urlFor(s);
   $('vImg').src = u;
   $('vDate').textContent = fmtDate(s.ts);
@@ -476,6 +437,7 @@ $('vDel').onclick = async () => {
 /* ================= TIME-LAPSE ================= */
 let lapseTimer = null, lapseImgs = [], recorder = null, LW = 1080, LH = 1440;
 $('playBtn').onclick = async () => {
+  if (!isOpenToday()) return showGate();
   const ordered = [...snaps].reverse();
   lapseImgs = await Promise.all(ordered.map(s => new Promise(r => {
     const i = new Image(); i.onload = () => r({ img: i, ts: s.ts }); i.src = urlFor(s); })));
@@ -551,77 +513,46 @@ document.addEventListener('keydown', e => {
   else show('cam');
 });
 
-/* ---------------- app lock ----------------
-   A PIN only you know — the right answer on a phone other people use,
-   and it works on devices with no fingerprint sensor at all. */
-let locked = false, hiddenAt = 0;
+/* ---------------- day gate ----------------
+   Your photos are only viewable on the days you chose. The camera always
+   works — this restricts looking back, not recording. */
+const OPEN_DAYS = JSON.parse(localStorage.getItem('snapz_days') || '[0,5]');  // Sun=0, Fri=5
+const DAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 
-function lockNow() {
-  if (!lock.isSet() || locked) return;
-  locked = true;
-  $('viewer').hidden = true; $('lapse').hidden = true;
-  show('cam');
-  askPin();
+const isOpenToday = () => OPEN_DAYS.includes(new Date().getDay());
+
+function nextOpen() {
+  const now = new Date();
+  for (let i = 1; i <= 7; i++) {
+    const d = new Date(now);
+    d.setDate(now.getDate() + i);
+    d.setHours(0, 0, 0, 0);
+    if (OPEN_DAYS.includes(d.getDay())) return d;
+  }
+  return null;
 }
 
-function askPin() {
-  $('pinTitle').textContent = 'Enter PIN';
-  $('pinSub').textContent = 'SnapZ is locked';
-  $('pinErr').hidden = true;
-  $('pinInput').value = '';
-  $('pin').hidden = false;
-  setTimeout(() => $('pinInput').focus(), 150);
-  tickLockout();
-}
-
-let lockoutTimer = null;
-function tickLockout() {
-  clearInterval(lockoutTimer);
-  const upd = () => {
-    const ms = lock.lockedOutFor();
-    if (ms > 0) {
-      $('pinGo').disabled = true;
-      $('pinErr').hidden = false;
-      $('pinErr').textContent = `Too many attempts — wait ${Math.ceil(ms / 1000)}s`;
-    } else {
-      $('pinGo').disabled = false;
-      clearInterval(lockoutTimer);
-      if ($('pinErr').textContent.startsWith('Too many')) $('pinErr').hidden = true;
-    }
+let gateTimer = null;
+function showGate() {
+  const names = OPEN_DAYS.map(d => DAY_NAMES[d]);
+  $('gateDay').textContent = DAY_NAMES[new Date().getDay()].slice(0, 3);
+  $('gateMsg').textContent = 'Your photos open on ' + names.join(' and ') + '.';
+  $('gate').hidden = false;
+  clearInterval(gateTimer);
+  const tick = () => {
+    const n = nextOpen();
+    if (!n) return;
+    const s = Math.max(0, Math.floor((n - Date.now()) / 1000));
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), d = Math.floor(h / 24);
+    $('gateCount').textContent = d > 0
+      ? 'Opens in ' + d + 'd ' + (h % 24) + 'h'
+      : 'Opens in ' + h + 'h ' + m + 'm ' + (s % 60) + 's';
+    if (s === 0) { clearInterval(gateTimer); $('gate').hidden = true; load(); }
   };
-  upd();
-  lockoutTimer = setInterval(upd, 500);
+  tick();
+  gateTimer = setInterval(tick, 1000);
 }
-
-async function tryPin() {
-  if (lock.lockedOutFor() > 0) return;
-  const v = $('pinInput').value;
-  if (await lock.verify(v)) {
-    locked = false;
-    $('pin').hidden = true;
-    $('pinInput').value = '';
-  } else {
-    $('pinErr').hidden = false;
-    $('pinErr').textContent = 'Wrong PIN';
-    $('pinInput').value = '';
-    tickLockout();
-  }
-}
-$('pinGo').onclick = tryPin;
-$('pinInput').addEventListener('keydown', e => { if (e.key === 'Enter') tryPin(); });
-
-/* Hide photos from the OS app-switcher snapshot, and re-lock on return. */
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden') {
-    hiddenAt = Date.now();
-    if (lock.isSet() && lock.lockWhen() !== 'never') $('shade').hidden = false;
-  } else {
-    $('shade').hidden = true;
-    const mode = lock.lockWhen();
-    const away = Date.now() - hiddenAt;
-    if (lock.isSet() && (mode === 'instant' || (mode === 'minute' && away > 60000))) lockNow();
-  }
-});
+$('gateClose').onclick = () => { clearInterval(gateTimer); $('gate').hidden = true; show('cam'); };
 
 /* ---------------- offline ---------------- */
 if ('serviceWorker' in navigator) {
@@ -636,7 +567,6 @@ addEventListener('offline', () => load());
 if (navigator.storage?.persist) navigator.storage.persist().catch(() => {});
 
 load().then(async () => {
-  if (lock.isSet()) { locked = true; askPin(); }
   if (!cloud.getToken() && !localStorage.getItem('snapz_nocloud')) showLogin();
   else flush();
 });

@@ -76,42 +76,21 @@ SnapZ shows a **passcode screen** on first run. The first passcode ever entered
 
 Long-press the gallery button for `restore` · `fingerprint` · `nolock` · `passcode` · `signout` · `api`.
 
-### Fingerprint / Face ID (WebAuthn passkeys)
-After signing in, SnapZ offers to enrol **this device's biometric sensor**.
+### Locks: removed
+There is no PIN and no biometric lock. Access to the app is not gated by a secret.
 
-- Uses `authenticatorAttachment: "platform"` and `userVerification: "required"` — so it is
-  *this phone's* sensor and a **real finger/face check**, not just a tap.
-- Your fingerprint never leaves the sensor; the private key never leaves the secure
-  enclave. D1 stores only a **public key**.
-- Server-side verification is dependency-free WebCrypto (`src/webauthn.js`): ES256 + RS256,
-  rpIdHash check, origin allow-list, single-use challenges, UV flag enforced, and
-  signature-counter clone detection.
-- **Only enrol a passkey on a phone where YOUR finger/face is the one registered in the
-  OS.** WebAuthn delegates to the operating system — on a shared phone, anyone enrolled
-  in Android/iOS could unlock it. The app warns before enrolling.
+The WebAuthn endpoints still exist in `src/index.js` but nothing calls them; they can be
+deleted if you never want them. The **passcode is still required for the API** — without
+it the Worker would serve your photos and daily GPS trail to anyone who found the URL.
 
-### App lock (PIN) — for shared phones
-`lock.js` implements a lock that is **independent of the OS and needs no sensor**.
+### Day gate
+Photos are only *viewable* on the days you choose (default **Friday and Sunday**).
+Enforced in the client: gallery, viewer, time-lapse and even the corner thumbnail stay
+closed on other days, and the grid renders nothing. The camera always works — the gate
+restricts looking back, not recording.
 
-- A PIN only you know, never stored — **PBKDF2-SHA256, 150k iterations, random salt**, local only.
-- Locks on launch, and on return from the background (`instant` / `minute` / `never`).
-- **Privacy shade** hides your photos from the OS app-switcher snapshot.
-- Brute-force throttling: exponential backoff after 3 failures, capped at 5 minutes.
-- Long-press the gallery button → `pin`, `pinoff`, `lockwhen`.
+Change it: long-press the gallery button → `days` → e.g. `sun,fri` or `sat`.
 
-Verified against forged signatures, wrong origin, missing biometric, replayed counters
-and challenge reuse — all rejected.
-
-### Optional: serve images straight from R2
-Cheaper and faster than proxying through the Worker. Attach a custom domain to the
-bucket (R2 → Settings → Public access), then set in `wrangler.toml`:
-
-```toml
-R2_PUBLIC_BASE = "https://img.catdevelopers.com"
-```
-
-and `wrangler deploy` again. New rows get direct R2 URLs; without it, images are
-served by the Worker at `/i/<key>`.
 
 ## API
 

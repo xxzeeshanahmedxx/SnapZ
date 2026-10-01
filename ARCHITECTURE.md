@@ -219,3 +219,21 @@ copy. Pull is idempotent — running it twice changes nothing.
 - Installable: Add to Home Screen gives a fullscreen, standalone camera.
 - The camera and gallery are fully functional offline — photos go to IndexedDB and
   upload later. The gallery header shows `offline` and `N to upload`.
+
+
+---
+
+## 10. Day gate
+
+`OPEN_DAYS` (default `[0, 5]` — Sunday and Friday) gates every path that could show a
+photo: the gallery grid, the viewer, the time-lapse, and the corner thumbnail. On a
+closed day the grid renders zero images rather than hiding them with CSS, so nothing
+is in the DOM to peek at. A live countdown shows when the next window opens, and the
+gate dismisses itself automatically the moment it does.
+
+Capture is deliberately never gated — you can always add to the archive; you just
+can't browse it except on your chosen days.
+
+This is client-side (self-discipline, not a security boundary). To make it absolute,
+the same check can be added to `GET /api/snaps` in the Worker — at the cost of being
+unable to restore to a new device on a closed day.
