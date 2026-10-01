@@ -61,6 +61,46 @@ export async function flush(getRecordForDay, onSynced) {
   }
 }
 
+/* ---- pull: bring the cloud archive down to this device ----
+   Used on a new phone, after clearing data, or as a periodic reconcile.
+   Local wins only when its capture is newer than the remote row. */
+export async function pull({ hasDay, putDay, onProgress } = {}) {
+  if (!getToken()) return { added: 0, updated: 0, skipped: 0 };
+  const rows = await remoteList();
+  let added = 0, updated = 0, skipped = 0, i = 0;
+
+  for (const row of rows) {
+    i++;
+    onProgress?.(i, rows.length);
+    const local = await hasDay(row.day);
+    if (local && Number(local.ts) >= Number(row.ts)) { skipped++; continue; }
+
+    let blob;
+    try {
+      const r = await fetch(row.url, { cache: 'force-cache' });
+      if (!r.ok) throw new Error(r.status);
+      blob = await r.blob();
+    } catch { skipped++; continue; }
+
+    await putDay({
+      day: row.day,
+      ts: Number(row.ts),
+      lat: row.lat ?? null,
+      lon: row.lon ?? null,
+      acc: row.accuracy ?? null,
+      place: row.place || '',
+      type: row.mime || blob.type || 'image/webp',
+      bytes: row.bytes || blob.size,
+      w: row.width || null,
+      h: row.height || null,
+      blob,
+      synced: true
+    }, local);
+    local ? updated++ : added++;
+  }
+  return { added, updated, skipped };
+}
+
 export async function remoteList() {
   const r = await fetch(`${apiBase()}/api/snaps`, { headers: { authorization: `Bearer ${getToken()}` } });
   if (!r.ok) throw new Error(r.status);

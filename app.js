@@ -278,6 +278,28 @@ async function syncRecord(rec) {
   }
 }
 const recordForDay = async day => (await dbAll()).find(s => s.day === day);
+
+/* Pull the cloud archive onto this device (new phone, or after clearing data). */
+async function restore() {
+  if (!cloud.getToken()) { alert('Set the API token first (long-press the gallery button).'); return; }
+  const hdr = $('gcount'); const old = hdr.textContent;
+  try {
+    const res = await cloud.pull({
+      hasDay: recordForDay,
+      putDay: async (r, existing) => {
+        if (existing) { await dbDel(existing.id); urls.delete(existing.id); }
+        await dbPut({ id: 's' + r.ts + Math.random().toString(36).slice(2, 6), day: r.day, ...r });
+      },
+      onProgress: (i, n) => { hdr.textContent = `restoring ${i}/${n}…`; }
+    });
+    await load();
+    hdr.textContent = `restored ${res.added + res.updated}`;
+    setTimeout(load, 2500);
+  } catch (e) {
+    hdr.textContent = 'restore failed';
+    setTimeout(() => { hdr.textContent = old; }, 2500);
+  }
+}
 const flush = () => cloud.flush(recordForDay, async day => {
   const r = await recordForDay(day);
   if (r) { r.synced = true; await dbPut(r); await load(); }
@@ -293,6 +315,7 @@ $('toGallery').addEventListener('pointerdown', () => {
     if (api) cloud.setApi(api);
     const t = prompt('Access token (set with: wrangler secret put SNAPZ_TOKEN)', cloud.getToken());
     if (t) { cloud.setToken(t); flush(); }
+    if (confirm('Restore photos from the cloud onto this device?')) restore();
   }, 700);
 });
 ['pointerup','pointerleave','pointercancel'].forEach(ev =>
@@ -305,8 +328,9 @@ async function load() {
   const mb = bytes / 1048576;
   $('gcount').textContent = snaps.length
     ? `${snaps.length} ${snaps.length === 1 ? 'snap' : 'snaps'} · ${mb < 1024 ? mb.toFixed(mb < 10 ? 1 : 0) + ' MB' : (mb / 1024).toFixed(1) + ' GB'}` +
-      (cloud.pending() ? ` · ${cloud.pending()} to upload` : '')
-    : '';
+      (cloud.pending() ? ` · ${cloud.pending()} to upload` : '') +
+      (navigator.onLine ? '' : ' · offline')
+    : (navigator.onLine ? '' : 'offline');
   const t = $('toGallery');
   if (snaps[0]) { t.style.backgroundImage = `url(${urlFor(snaps[0])})`;
     t.classList.remove('pop'); void t.offsetWidth; t.classList.add('pop'); }
@@ -423,6 +447,13 @@ document.addEventListener('keydown', e => {
   else if (!$('viewer').hidden) $('vClose').onclick();
   else show('cam');
 });
+
+/* ---------------- offline ---------------- */
+if ('serviceWorker' in navigator) {
+  addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
+}
+addEventListener('online',  () => { load(); flush(); });
+addEventListener('offline', () => load());
 
 /* ---------------- go ---------------- */
 /* Browsers may evict IndexedDB under storage pressure. This is a decades-long

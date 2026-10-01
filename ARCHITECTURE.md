@@ -190,3 +190,32 @@ local record for today. Re-shooting replaces; it never duplicates.
 
 Config lives in `localStorage` (`snapz_api`, `snapz_token`) — long-press the gallery
 thumbnail to set them. No token means the app simply stays local-only.
+
+---
+
+## 9. Two-way sync & offline
+
+**Push** (automatic): capture → IndexedDB → UI → worker enhance → `POST /api/snap`.
+Failures queue in `localStorage` and retry on reconnect and at startup.
+
+**Pull** (`restore()`): fetches `/api/snaps`, and for each day downloads the image and
+writes it into IndexedDB. Use it on a new phone or after clearing browser data —
+long-press the gallery button and confirm the restore prompt.
+
+Conflict rule: **the newer capture wins.** A remote row only overwrites a local one when
+`remote.ts > local.ts`, so a photo taken offline is never clobbered by an older cloud
+copy. Pull is idempotent — running it twice changes nothing.
+
+| Scenario | Result |
+|---|---|
+| Fresh device, 2 days in cloud | `added: 2` |
+| Pull again immediately | `skipped: 2` — no duplicates |
+| Local copy newer than remote | local preserved |
+
+**Offline (`sw.js` + `manifest.webmanifest`)**
+- The app shell (~48 KB) is precached, so SnapZ opens instantly with no connection.
+- `/api/*` is **never** cached — stale data is worse than no data.
+- `/i/*` cloud images are cached permanently; they're immutable once written.
+- Installable: Add to Home Screen gives a fullscreen, standalone camera.
+- The camera and gallery are fully functional offline — photos go to IndexedDB and
+  upload later. The gallery header shows `offline` and `N to upload`.
