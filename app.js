@@ -307,13 +307,20 @@ const flush = () => cloud.flush(recordForDay, async day => {
 window.addEventListener('snapz:flush', flush);
 
 /* ---- login screen ---- */
-async function showLogin() {
-  let first = false;
-  try { first = !(await cloud.authStatus()).configured; } catch {}
+async function showLogin(lockedOnly = false) {
+  let first = false, m = null;
+  try { m = await cloud.methods(); first = !m.passcode; } catch {}
+
+  /* if a fingerprint is enrolled, offer it first */
+  const bio = !!(m?.passkeys) && cloud.passkeySupported();
+  $('lockBio').hidden = !bio;
+  $('lockSkip').hidden = lockedOnly;
+  if (bio) setTimeout(() => tryBiometric(true), 300);   // auto-prompt
   $('lockTitle').textContent = first ? 'Choose a passcode' : 'Enter passcode';
   $('lockSub').textContent   = first
     ? 'You only set this once. It unlocks your backup on any device.'
     : 'Unlock cloud backup on this device';
+  if (lockedOnly) { $('lockTitle').textContent = 'SnapZ is locked'; $('lockSub').textContent = 'Unlock to see your photos'; }
   $('lockPass').setAttribute('autocomplete', first ? 'new-password' : 'current-password');
   $('lockErr').hidden = true;
   $('lockPass').value = '';
@@ -327,8 +334,10 @@ async function doLogin() {
   try {
     const res = await cloud.login(pass);
     $('login').hidden = true;
+    locked = false;
     await flush();
     if (!res.created) restore();          // existing account → pull the archive
+    offerPasskey();
   } catch (e) {
     $('lockErr').textContent = String(e.message || e);
     $('lockErr').hidden = false;
@@ -336,6 +345,28 @@ async function doLogin() {
     $('lockGo').disabled = false; $('lockGo').textContent = 'Continue';
   }
 }
+async function tryBiometric(silent) {
+  try {
+    await cloud.passkeyLogin();
+    $('login').hidden = true;
+    locked = false;
+    await flush();
+  } catch (e) {
+    if (!silent) { $('lockErr').textContent = String(e.message || e); $('lockErr').hidden = false; }
+  }
+}
+$('lockBio').onclick = () => tryBiometric(false);
+
+/* offer to enrol the sensor right after a successful passcode login */
+async function offerPasskey() {
+  if (!cloud.passkeySupported() || !(await cloud.platformAvailable())) return;
+  if (localStorage.getItem('snapz_bio_asked')) return;
+  localStorage.setItem('snapz_bio_asked', '1');
+  if (!confirm('Lock SnapZ with your fingerprint / Face ID on this device?')) return;
+  try { await cloud.passkeyRegister(navigator.userAgent.slice(0, 40)); alert('Fingerprint unlock enabled.'); }
+  catch (e) { alert('Could not enable: ' + e.message); }
+}
+
 $('lockGo').onclick = doLogin;
 $('lockPass').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
 $('lockSkip').onclick = () => { $('login').hidden = true; localStorage.setItem('snapz_nocloud', '1'); };
@@ -346,7 +377,13 @@ $('toGallery').addEventListener('pointerdown', () => {
   pressTimer = setTimeout(async () => {
     pressTimer = null;
     if (!cloud.getToken()) { localStorage.removeItem('snapz_nocloud'); return showLogin(); }
-    const choice = prompt('Type: restore · passcode · signout · api', '');
+    const choice = prompt('Type: restore · fingerprint · nolock · passcode · signout · api', '');
+    if (choice === 'fingerprint') {
+      try { await cloud.passkeyRegister(navigator.userAgent.slice(0, 40)); alert('Fingerprint unlock enabled.'); }
+      catch (e) { alert('Failed: ' + e.message); }
+      return;
+    }
+    if (choice === 'nolock') { cloud.setLock(false); alert('App lock disabled on this device.'); return; }
     if (choice === 'restore') restore();
     else if (choice === 'signout') { cloud.logout(); showLogin(); }
     else if (choice === 'api') { const u = prompt('API URL', cloud.apiBase()); if (u) cloud.setApi(u); }
@@ -487,6 +524,24 @@ document.addEventListener('keydown', e => {
   else show('cam');
 });
 
+/* ---------------- app lock ----------------
+   With a passkey enrolled, SnapZ locks itself when you leave it — so an
+   unlocked phone in someone else's hand still can't open your gallery. */
+let locked = false, hiddenAt = 0;
+const LOCK_AFTER = 60000;
+
+function lockNow() {
+  if (!cloud.lockEnabled() || locked) return;
+  locked = true;
+  $('viewer').hidden = true; $('lapse').hidden = true;
+  show('cam');
+  showLogin(true);
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') hiddenAt = Date.now();
+  else if (hiddenAt && Date.now() - hiddenAt > LOCK_AFTER) lockNow();
+});
+
 /* ---------------- offline ---------------- */
 if ('serviceWorker' in navigator) {
   addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
@@ -500,7 +555,8 @@ addEventListener('offline', () => load());
 if (navigator.storage?.persist) navigator.storage.persist().catch(() => {});
 
 load().then(async () => {
-  if (!cloud.getToken() && !localStorage.getItem('snapz_nocloud')) showLogin();
+  if (cloud.lockEnabled()) { locked = true; showLogin(true); flush(); }
+  else if (!cloud.getToken() && !localStorage.getItem('snapz_nocloud')) showLogin();
   else flush();
 });
 startCam();

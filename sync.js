@@ -129,6 +129,86 @@ export async function changePasscode(current, next) {
 }
 export const logout = () => localStorage.removeItem(TKEY);
 
+/* ================= PASSKEYS (fingerprint / Face ID) ================= */
+const b64u = buf => btoa(String.fromCharCode(...new Uint8Array(buf)))
+  .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const unb64u = s => Uint8Array.from(
+  atob(String(s).replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
+
+export const passkeySupported = () =>
+  !!(window.PublicKeyCredential && navigator.credentials?.create);
+
+export async function platformAvailable() {
+  try { return await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable(); }
+  catch { return false; }
+}
+
+export async function methods() {
+  const r = await fetch(`${apiBase()}/api/auth/methods`);
+  if (!r.ok) throw new Error(r.status);
+  return r.json();                     // { passcode, passkeys, devices }
+}
+
+/* Enrol this device's fingerprint / Face ID. Requires a current session. */
+export async function passkeyRegister(name) {
+  const o = await (await fetch(`${apiBase()}/api/webauthn/register/options`, {
+    method: 'POST', headers: { authorization: `Bearer ${getToken()}` }
+  })).json();
+  if (o.error) throw new Error(o.error);
+
+  const cred = await navigator.credentials.create({ publicKey: {
+    ...o,
+    challenge: unb64u(o.challenge),
+    user: { ...o.user, id: unb64u(o.user.id) },
+    excludeCredentials: (o.excludeCredentials || []).map(c => ({ ...c, id: unb64u(c.id) }))
+  }});
+
+  const r = await fetch(`${apiBase()}/api/webauthn/register/verify`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${getToken()}` },
+    body: JSON.stringify({
+      challenge: o.challenge,
+      attestationObject: b64u(cred.response.attestationObject),
+      clientDataJSON: b64u(cred.response.clientDataJSON),
+      name: name || navigator.platform || 'This device'
+    })
+  });
+  const d = await r.json();
+  if (!r.ok) throw new Error(d.error || 'registration failed');
+  localStorage.setItem('snapz_lock', '1');
+  return d;
+}
+
+/* Unlock with the fingerprint sensor. Returns a fresh session token. */
+export async function passkeyLogin() {
+  const o = await (await fetch(`${apiBase()}/api/webauthn/login/options`, { method: 'POST' })).json();
+  if (o.error) throw new Error(o.error);
+
+  const cred = await navigator.credentials.get({ publicKey: {
+    ...o,
+    challenge: unb64u(o.challenge),
+    allowCredentials: (o.allowCredentials || []).map(c => ({ ...c, id: unb64u(c.id) }))
+  }});
+
+  const r = await fetch(`${apiBase()}/api/webauthn/login/verify`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      challenge: o.challenge,
+      id: cred.id,
+      authenticatorData: b64u(cred.response.authenticatorData),
+      clientDataJSON: b64u(cred.response.clientDataJSON),
+      signature: b64u(cred.response.signature)
+    })
+  });
+  const d = await r.json();
+  if (!r.ok) throw new Error(d.error || 'unlock failed');
+  setToken(d.token);
+  return d;
+}
+
+export const lockEnabled = () => localStorage.getItem('snapz_lock') === '1';
+export const setLock = on => on ? localStorage.setItem('snapz_lock','1') : localStorage.removeItem('snapz_lock');
+
 export async function remoteList() {
   const r = await fetch(`${apiBase()}/api/snaps`, { headers: { authorization: `Bearer ${getToken()}` } });
   if (!r.ok) throw new Error(r.status);

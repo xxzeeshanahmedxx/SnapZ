@@ -1,3 +1,4 @@
+import { verifyRegistration, verifyAssertion, b64u as wb64u, unb64u as wunb64u } from './webauthn.js';
 /* SnapZ API — Cloudflare Worker
    D1 holds one row per day; R2 holds the image bytes.
 
@@ -85,8 +86,32 @@ const setCfg = (env, k, v) => env.DB.prepare(
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 
+/* ---- WebAuthn config ---- */
+const rpIdOf = env => env.RP_ID || 'snapz.catdevelopers.com';
+const originsOf = env => (env.ORIGINS || 'https://snapz.catdevelopers.com')
+  .split(',').map(s => s.trim()).filter(Boolean);
+
+async function newChallenge(env) {
+  const c = b64u(crypto.getRandomValues(new Uint8Array(32)));
+  await env.DB.prepare('INSERT INTO challenges (challenge, expires) VALUES (?,?)')
+    .bind(c, Date.now() + 300000).run();
+  return c;
+}
+async function takeChallenge(env, c) {
+  const row = await env.DB.prepare('SELECT expires FROM challenges WHERE challenge = ?').bind(c).first();
+  await env.DB.prepare('DELETE FROM challenges WHERE challenge = ? OR expires < ?')
+    .bind(c, Date.now()).run();
+  return !!row && row.expires > Date.now();
+}
+
 export default {
   async fetch(req, env) {
+    try { return await handle(req, env); }
+    catch (err) { return json({ error: String(err?.message || err) }, 500); }
+  }
+};
+
+async function handle(req, env) {
     const url = new URL(req.url);
     const p = url.pathname;
 
@@ -144,6 +169,90 @@ export default {
       if (!next || String(next).length < 4) return json({ error: 'too short' }, 400);
       await setCfg(env, 'passcode', await hashPass(String(next)));
       return json({ ok: true, token: await signToken(env) });
+    }
+
+    /* ================= PASSKEYS (fingerprint / Face ID) ================= */
+
+    /* how is this account protected? */
+    if (p === '/api/auth/methods' && req.method === 'GET') {
+      const pc = await getCfg(env, 'passcode');
+      const { results } = await env.DB.prepare(
+        'SELECT id, name, created_at, last_used FROM credentials').all();
+      return json({ passcode: !!pc, passkeys: results.length, devices: results });
+    }
+
+    /* --- register a new passkey (requires an existing session) --- */
+    if (p === '/api/webauthn/register/options' && req.method === 'POST') {
+      if (!(await authed(req, env))) return json({ error: 'unauthorized' }, 401);
+      const { results } = await env.DB.prepare('SELECT id FROM credentials').all();
+      return json({
+        challenge: await newChallenge(env),
+        rp: { id: rpIdOf(env), name: 'SnapZ' },
+        user: { id: b64u(enc.encode('snapz-owner')), name: 'owner', displayName: 'SnapZ' },
+        pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
+        authenticatorSelection: {
+          authenticatorAttachment: 'platform',       // the phone's own sensor
+          residentKey: 'preferred',
+          userVerification: 'required'               // fingerprint/Face ID, not just presence
+        },
+        excludeCredentials: results.map(r => ({ id: r.id, type: 'public-key' })),
+        timeout: 60000,
+        attestation: 'none'
+      });
+    }
+
+    if (p === '/api/webauthn/register/verify' && req.method === 'POST') {
+      if (!(await authed(req, env))) return json({ error: 'unauthorized' }, 401);
+      const body = await req.json();
+      if (!(await takeChallenge(env, body.challenge))) return json({ error: 'challenge expired' }, 400);
+      const reg = await verifyRegistration({
+        attestationObject: unb64u(body.attestationObject),
+        clientDataJSON: unb64u(body.clientDataJSON),
+        challenge: body.challenge, origins: originsOf(env), rpId: rpIdOf(env)
+      });
+      await env.DB.prepare(`INSERT INTO credentials (id,pubkey,alg,counter,name,created_at)
+        VALUES (?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET pubkey=excluded.pubkey,
+        counter=excluded.counter, name=excluded.name`)
+        .bind(reg.id, reg.pubkey, reg.alg, reg.counter,
+              String(body.name || 'This device').slice(0, 40), Date.now()).run();
+      return json({ ok: true, id: reg.id });
+    }
+
+    /* --- log in with a passkey (no session needed) --- */
+    if (p === '/api/webauthn/login/options' && req.method === 'POST') {
+      const { results } = await env.DB.prepare('SELECT id FROM credentials').all();
+      if (!results.length) return json({ error: 'no passkeys registered' }, 404);
+      return json({
+        challenge: await newChallenge(env),
+        rpId: rpIdOf(env),
+        allowCredentials: results.map(r => ({ id: r.id, type: 'public-key' })),
+        userVerification: 'required',
+        timeout: 60000
+      });
+    }
+
+    if (p === '/api/webauthn/login/verify' && req.method === 'POST') {
+      const body = await req.json();
+      if (!(await takeChallenge(env, body.challenge))) return json({ error: 'challenge expired' }, 400);
+      const cred = await env.DB.prepare('SELECT * FROM credentials WHERE id = ?').bind(body.id).first();
+      if (!cred) return json({ error: 'unknown credential' }, 404);
+      const { counter } = await verifyAssertion({
+        authenticatorData: unb64u(body.authenticatorData),
+        clientDataJSON: unb64u(body.clientDataJSON),
+        signature: unb64u(body.signature),
+        challenge: body.challenge, origins: originsOf(env), rpId: rpIdOf(env),
+        pubkey: cred.pubkey, storedCounter: cred.counter
+      });
+      await env.DB.prepare('UPDATE credentials SET counter = ?, last_used = ? WHERE id = ?')
+        .bind(counter, Date.now(), body.id).run();
+      return json({ ok: true, token: await signToken(env) });
+    }
+
+    if (p.startsWith('/api/webauthn/device/') && req.method === 'DELETE') {
+      if (!(await authed(req, env))) return json({ error: 'unauthorized' }, 401);
+      await env.DB.prepare('DELETE FROM credentials WHERE id = ?')
+        .bind(decodeURIComponent(p.split('/').pop())).run();
+      return json({ ok: true });
     }
 
     if (!(await authed(req, env))) return json({ error: 'unauthorized' }, 401);
@@ -233,4 +342,3 @@ export default {
       return json({ error: String(err?.message || err) }, 500);
     }
   }
-};

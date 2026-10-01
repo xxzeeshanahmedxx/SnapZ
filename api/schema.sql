@@ -29,3 +29,22 @@ CREATE TABLE IF NOT EXISTS config (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+
+-- Passkeys (WebAuthn). Only PUBLIC keys live here; the private key never
+-- leaves the phone's secure enclave, and the fingerprint itself never leaves
+-- the sensor — the OS only tells the browser "the right finger was presented".
+CREATE TABLE IF NOT EXISTS credentials (
+  id         TEXT PRIMARY KEY,   -- base64url credential id
+  pubkey     TEXT NOT NULL,      -- base64url COSE public key
+  alg        INTEGER NOT NULL,   -- -7 = ES256, -257 = RS256
+  counter    INTEGER NOT NULL DEFAULT 0,
+  name       TEXT,               -- "Zeeshan's iPhone"
+  created_at INTEGER NOT NULL,
+  last_used  INTEGER
+);
+
+-- Short-lived WebAuthn challenges (replay protection).
+CREATE TABLE IF NOT EXISTS challenges (
+  challenge TEXT PRIMARY KEY,
+  expires   INTEGER NOT NULL
+);

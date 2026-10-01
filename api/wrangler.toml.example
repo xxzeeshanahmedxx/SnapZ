@@ -14,6 +14,9 @@ bucket_name = "${R2_BUCKET}"
 
 [vars]
 R2_PUBLIC_BASE = "${R2_PUBLIC_BASE}"
+# WebAuthn: the passkey is bound to this exact domain
+RP_ID   = "snapz.catdevelopers.com"
+ORIGINS = "https://snapz.catdevelopers.com"
 
 # SNAPZ_TOKEN is a real secret — never here:
 #   wrangler secret put SNAPZ_TOKEN

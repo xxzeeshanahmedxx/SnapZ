@@ -74,7 +74,23 @@ SnapZ shows a **passcode screen** on first run. The first passcode ever entered
 - `SNAPZ_TOKEN` still works directly as a break-glass admin credential.
 - Signing in on a device that has no photos automatically offers to **restore** from the cloud.
 
-Long-press the gallery button for `restore` · `passcode` (change it) · `signout` · `api`.
+Long-press the gallery button for `restore` · `fingerprint` · `nolock` · `passcode` · `signout` · `api`.
+
+### Fingerprint / Face ID (WebAuthn passkeys)
+After signing in, SnapZ offers to enrol **this device's biometric sensor**.
+
+- Uses `authenticatorAttachment: "platform"` and `userVerification: "required"` — so it is
+  *this phone's* sensor and a **real finger/face check**, not just a tap.
+- Your fingerprint never leaves the sensor; the private key never leaves the secure
+  enclave. D1 stores only a **public key**.
+- Server-side verification is dependency-free WebCrypto (`src/webauthn.js`): ES256 + RS256,
+  rpIdHash check, origin allow-list, single-use challenges, UV flag enforced, and
+  signature-counter clone detection.
+- **App lock:** with a passkey enrolled, SnapZ locks when backgrounded for 60s. Someone
+  holding your unlocked phone still can't open the gallery.
+
+Verified against forged signatures, wrong origin, missing biometric, replayed counters
+and challenge reuse — all rejected.
 
 ### Optional: serve images straight from R2
 Cheaper and faster than proxying through the Worker. Attach a custom domain to the

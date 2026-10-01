@@ -95,3 +95,6 @@ a{color:#fff}
 .pill.wide{width:100%;margin-top:14px;padding:14px}
 .linkish{display:block;width:100%;margin-top:16px;color:#6b7280;font-size:13px;text-decoration:underline}
 .lock-err{color:#ff5d6c !important;margin:12px 0 0 !important;font-size:13px}
+
+.pill.bio{display:flex;align-items:center;justify-content:center;gap:9px}
+.lock-box .pill.ghost{background:transparent;color:#fff;border:1px solid #2b3240}
