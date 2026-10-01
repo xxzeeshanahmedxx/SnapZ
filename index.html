@@ -40,6 +40,22 @@
   </div>
 </section>
 
+<!-- ================= APP LOCK (PIN) ================= -->
+<section id="pin" class="screen lock" hidden>
+  <div class="lock-box">
+    <div class="lock-logo"></div>
+    <h1 id="pinTitle">Enter PIN</h1>
+    <p id="pinSub">SnapZ is locked</p>
+    <input id="pinInput" type="password" inputmode="numeric" autocomplete="off"
+           placeholder="••••" enterkeyhint="go">
+    <p id="pinErr" class="lock-err" hidden></p>
+    <button id="pinGo" class="pill wide">Unlock</button>
+  </div>
+</section>
+
+<!-- privacy screen: hides your photos in the app switcher -->
+<div id="shade" class="shade" hidden></div>
+
 <!-- ================= LOGIN ================= -->
 <section id="login" class="screen lock" hidden>
   <div class="lock-box">

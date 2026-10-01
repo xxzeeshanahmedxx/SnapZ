@@ -4,6 +4,7 @@
 
 import { enhance, averageFrames } from './enhance.js';
 import * as cloud from './sync.js';
+import * as lock from './lock.js';
 
 const $ = id => document.getElementById(id);
 const DB = 'snapz', STORE = 'snaps';
@@ -357,14 +358,15 @@ async function tryBiometric(silent) {
 }
 $('lockBio').onclick = () => tryBiometric(false);
 
-/* offer to enrol the sensor right after a successful passcode login */
+/* Offer an app lock after signing in. A PIN, not biometrics: on a shared
+   phone the enrolled finger may belong to someone else. */
 async function offerPasskey() {
-  if (!cloud.passkeySupported() || !(await cloud.platformAvailable())) return;
-  if (localStorage.getItem('snapz_bio_asked')) return;
-  localStorage.setItem('snapz_bio_asked', '1');
-  if (!confirm('Lock SnapZ with your fingerprint / Face ID on this device?')) return;
-  try { await cloud.passkeyRegister(navigator.userAgent.slice(0, 40)); alert('Fingerprint unlock enabled.'); }
-  catch (e) { alert('Could not enable: ' + e.message); }
+  if (lock.isSet() || localStorage.getItem('snapz_pin_asked')) return;
+  localStorage.setItem('snapz_pin_asked', '1');
+  if (!confirm('Set a PIN to lock SnapZ on this device?\n\nUse this if other people use your phone — it is separate from your phone unlock.')) return;
+  const p = prompt('Choose a PIN (4+ digits)');
+  if (!p) return;
+  try { await lock.setPin(p); alert('App lock on.'); } catch (e) { alert(e.message); }
 }
 
 $('lockGo').onclick = doLogin;
@@ -377,13 +379,38 @@ $('toGallery').addEventListener('pointerdown', () => {
   pressTimer = setTimeout(async () => {
     pressTimer = null;
     if (!cloud.getToken()) { localStorage.removeItem('snapz_nocloud'); return showLogin(); }
-    const choice = prompt('Type: restore · fingerprint · nolock · passcode · signout · api', '');
+    const choice = prompt('Type: pin · pinoff · lockwhen · restore · fingerprint · passcode · signout · api', '');
+    if (choice === 'pin') {
+      if (lock.isSet()) {
+        const cur = prompt('Current PIN'); if (cur === null) return;
+        const nxt = prompt('New PIN (4+ digits)'); if (!nxt) return;
+        try { await lock.changePin(cur, nxt); alert('PIN changed.'); } catch (e) { alert(e.message); }
+      } else {
+        const p = prompt('Set a PIN (4+ digits). Only you know this — it is not your phone unlock.');
+        if (!p) return;
+        try { await lock.setPin(p); alert('App lock on. SnapZ will ask for this PIN when reopened.'); }
+        catch (e) { alert(e.message); }
+      }
+      return;
+    }
+    if (choice === 'pinoff') {
+      const cur = prompt('Current PIN to disable the lock');
+      if (cur !== null && await lock.verify(cur)) { lock.clearPin(); alert('App lock off.'); }
+      else if (cur !== null) alert('Wrong PIN');
+      return;
+    }
+    if (choice === 'lockwhen') {
+      const v = prompt('Lock when: instant · minute · never', lock.lockWhen());
+      if (['instant','minute','never'].includes(v)) { lock.setLockWhen(v); alert('Lock set to: ' + v); }
+      return;
+    }
     if (choice === 'fingerprint') {
-      try { await cloud.passkeyRegister(navigator.userAgent.slice(0, 40)); alert('Fingerprint unlock enabled.'); }
+      if (!await cloud.platformAvailable()) { alert('No biometric sensor available on this device.'); return; }
+      if (!confirm('Only do this on a phone where YOUR finger/face is the one enrolled. On a shared phone, anyone enrolled in the OS could unlock. Continue?')) return;
+      try { await cloud.passkeyRegister(navigator.userAgent.slice(0, 40)); alert('Biometric unlock enabled.'); }
       catch (e) { alert('Failed: ' + e.message); }
       return;
     }
-    if (choice === 'nolock') { cloud.setLock(false); alert('App lock disabled on this device.'); return; }
     if (choice === 'restore') restore();
     else if (choice === 'signout') { cloud.logout(); showLogin(); }
     else if (choice === 'api') { const u = prompt('API URL', cloud.apiBase()); if (u) cloud.setApi(u); }
@@ -525,21 +552,75 @@ document.addEventListener('keydown', e => {
 });
 
 /* ---------------- app lock ----------------
-   With a passkey enrolled, SnapZ locks itself when you leave it — so an
-   unlocked phone in someone else's hand still can't open your gallery. */
+   A PIN only you know — the right answer on a phone other people use,
+   and it works on devices with no fingerprint sensor at all. */
 let locked = false, hiddenAt = 0;
-const LOCK_AFTER = 60000;
 
 function lockNow() {
-  if (!cloud.lockEnabled() || locked) return;
+  if (!lock.isSet() || locked) return;
   locked = true;
   $('viewer').hidden = true; $('lapse').hidden = true;
   show('cam');
-  showLogin(true);
+  askPin();
 }
+
+function askPin() {
+  $('pinTitle').textContent = 'Enter PIN';
+  $('pinSub').textContent = 'SnapZ is locked';
+  $('pinErr').hidden = true;
+  $('pinInput').value = '';
+  $('pin').hidden = false;
+  setTimeout(() => $('pinInput').focus(), 150);
+  tickLockout();
+}
+
+let lockoutTimer = null;
+function tickLockout() {
+  clearInterval(lockoutTimer);
+  const upd = () => {
+    const ms = lock.lockedOutFor();
+    if (ms > 0) {
+      $('pinGo').disabled = true;
+      $('pinErr').hidden = false;
+      $('pinErr').textContent = `Too many attempts — wait ${Math.ceil(ms / 1000)}s`;
+    } else {
+      $('pinGo').disabled = false;
+      clearInterval(lockoutTimer);
+      if ($('pinErr').textContent.startsWith('Too many')) $('pinErr').hidden = true;
+    }
+  };
+  upd();
+  lockoutTimer = setInterval(upd, 500);
+}
+
+async function tryPin() {
+  if (lock.lockedOutFor() > 0) return;
+  const v = $('pinInput').value;
+  if (await lock.verify(v)) {
+    locked = false;
+    $('pin').hidden = true;
+    $('pinInput').value = '';
+  } else {
+    $('pinErr').hidden = false;
+    $('pinErr').textContent = 'Wrong PIN';
+    $('pinInput').value = '';
+    tickLockout();
+  }
+}
+$('pinGo').onclick = tryPin;
+$('pinInput').addEventListener('keydown', e => { if (e.key === 'Enter') tryPin(); });
+
+/* Hide photos from the OS app-switcher snapshot, and re-lock on return. */
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden') hiddenAt = Date.now();
-  else if (hiddenAt && Date.now() - hiddenAt > LOCK_AFTER) lockNow();
+  if (document.visibilityState === 'hidden') {
+    hiddenAt = Date.now();
+    if (lock.isSet() && lock.lockWhen() !== 'never') $('shade').hidden = false;
+  } else {
+    $('shade').hidden = true;
+    const mode = lock.lockWhen();
+    const away = Date.now() - hiddenAt;
+    if (lock.isSet() && (mode === 'instant' || (mode === 'minute' && away > 60000))) lockNow();
+  }
 });
 
 /* ---------------- offline ---------------- */
@@ -555,8 +636,8 @@ addEventListener('offline', () => load());
 if (navigator.storage?.persist) navigator.storage.persist().catch(() => {});
 
 load().then(async () => {
-  if (cloud.lockEnabled()) { locked = true; showLogin(true); flush(); }
-  else if (!cloud.getToken() && !localStorage.getItem('snapz_nocloud')) showLogin();
+  if (lock.isSet()) { locked = true; askPin(); }
+  if (!cloud.getToken() && !localStorage.getItem('snapz_nocloud')) showLogin();
   else flush();
 });
 startCam();

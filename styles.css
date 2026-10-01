@@ -98,3 +98,10 @@ a{color:#fff}
 
 .pill.bio{display:flex;align-items:center;justify-content:center;gap:9px}
 .lock-box .pill.ghost{background:transparent;color:#fff;border:1px solid #2b3240}
+
+/* privacy shade — covers content when the app is backgrounded */
+.shade{position:fixed;inset:0;z-index:70;background:#000;display:flex;
+  align-items:center;justify-content:center}
+.shade[hidden]{display:none !important}
+.shade:after{content:'';width:54px;height:54px;border-radius:50%;border:3px solid #fff}
+#pin{z-index:80}

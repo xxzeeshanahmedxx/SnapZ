@@ -86,8 +86,18 @@ After signing in, SnapZ offers to enrol **this device's biometric sensor**.
 - Server-side verification is dependency-free WebCrypto (`src/webauthn.js`): ES256 + RS256,
   rpIdHash check, origin allow-list, single-use challenges, UV flag enforced, and
   signature-counter clone detection.
-- **App lock:** with a passkey enrolled, SnapZ locks when backgrounded for 60s. Someone
-  holding your unlocked phone still can't open the gallery.
+- **Only enrol a passkey on a phone where YOUR finger/face is the one registered in the
+  OS.** WebAuthn delegates to the operating system — on a shared phone, anyone enrolled
+  in Android/iOS could unlock it. The app warns before enrolling.
+
+### App lock (PIN) — for shared phones
+`lock.js` implements a lock that is **independent of the OS and needs no sensor**.
+
+- A PIN only you know, never stored — **PBKDF2-SHA256, 150k iterations, random salt**, local only.
+- Locks on launch, and on return from the background (`instant` / `minute` / `never`).
+- **Privacy shade** hides your photos from the OS app-switcher snapshot.
+- Brute-force throttling: exponential backoff after 3 failures, capped at 5 minutes.
+- Long-press the gallery button → `pin`, `pinoff`, `lockwhen`.
 
 Verified against forged signatures, wrong origin, missing biometric, replayed counters
 and challenge reuse — all rejected.
