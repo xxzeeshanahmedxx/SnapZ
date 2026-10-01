@@ -4,7 +4,7 @@ A pure camera. Open it, tap the white shutter, done — one selfie a day.
 
 No stats, no forms, no "save" step, nothing on screen but the viewfinder. Behind the glass every snap quietly records **when** and **where** it was taken, so years from now you can look back and see how you looked, what day it was, and where you were standing.
 
-**Live:** https://xxzeeshanahmedxx.github.io/SnapZ/
+**Live:** https://snapz.catdevelopers.com
 
 ## The whole app
 - **Camera** — fullscreen viewfinder. A white shutter button, a gallery thumbnail bottom-left, a flip button bottom-right. That's it.
