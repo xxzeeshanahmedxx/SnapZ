@@ -7,7 +7,28 @@ import { enhance, averageFrames } from './enhance.js';
 const $ = id => document.getElementById(id);
 const DB = 'snapz', STORE = 'snaps';
 const inFrame = window.self !== window.top;
-const BURST = 5;                 // frames averaged when we can't get a real still
+const BURST = 3;                 // frames averaged when we can't get a real still
+
+/* ---- background image processor ---- */
+let worker = null, jobId = 0;
+const jobs = new Map();
+try {
+  worker = new Worker('./worker.js', { type: 'module' });
+  worker.onmessage = e => {
+    const j = jobs.get(e.data.id);
+    if (!j) return;
+    jobs.delete(e.data.id);
+    j(e.data.blob || null);
+  };
+} catch { worker = null; }
+
+const enhanceInWorker = bitmap => new Promise(res => {
+  if (!worker) return res(null);
+  const id = ++jobId;
+  jobs.set(id, res);
+  worker.postMessage({ id, bitmap }, [bitmap]);
+  setTimeout(() => { if (jobs.has(id)) { jobs.delete(id); res(null); } }, 20000);
+});
 
 /* ---------------- storage ---------------- */
 const dbp = new Promise((res, rej) => {
@@ -161,17 +182,29 @@ async function capture() {
     /* B. fallback: burst-average video frames to kill sensor noise */
     if (!cv) cv = await burstCapture(mirror);
 
-    /* post-process */
-    const g = cv.getContext('2d', { willReadFrequently: true });
-    const img = g.getImageData(0, 0, cv.width, cv.height);
-    enhance(img, cv.width, cv.height);
-    g.putImageData(img, 0, 0);
+    /* Save the photo FIRST so the shutter feels instant, then enhance in the
+       background and swap the better version in when it's ready. */
+    const raw = await new Promise(r => cv.toBlob(r, 'image/jpeg', 0.95));
+    const rec = await save(raw, Date.now());
 
-    const blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', 0.95));
-    await save(blob, Date.now());
+    busy = false; $('shutter').disabled = false;   // camera is usable again now
+
+    const bmp = await createImageBitmap(cv);
+    const better = worker ? await enhanceInWorker(bmp)
+                          : await enhanceOnMain(cv);
+    if (better) { rec.blob = better; await dbPut(rec); urls.delete(rec.id); await load(); }
   } finally {
     busy = false; $('shutter').disabled = false;
   }
+}
+
+/* only used where module workers aren't available */
+async function enhanceOnMain(cv) {
+  const g = cv.getContext('2d', { willReadFrequently: true });
+  const img = g.getImageData(0, 0, cv.width, cv.height);
+  enhance(img, cv.width, cv.height);
+  g.putImageData(img, 0, 0);
+  return new Promise(r => cv.toBlob(r, 'image/jpeg', 0.95));
 }
 
 function toCanvas(src, w, h, mirror) {
@@ -210,8 +243,11 @@ async function save(blob, ts) {
     place:'', blob, type:'image/jpeg' };
   await dbPut(rec);
   await load();
-  if (rec.lat != null) { const n = await placeName(rec.lat, rec.lon);
-    if (n) { rec.place = n; await dbPut(rec); await load(); } }
+  /* reverse-geocode without making the shutter wait on the network */
+  if (rec.lat != null) placeName(rec.lat, rec.lon).then(async n => {
+    if (n) { rec.place = n; await dbPut(rec); }
+  });
+  return rec;
 }
 
 /* ================= GALLERY ================= */
