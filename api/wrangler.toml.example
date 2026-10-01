@@ -1,0 +1,19 @@
+# Template only. ./deploy.sh generates the real wrangler.toml from .env.
+name = "snapz-api"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+
+[[d1_databases]]
+binding       = "DB"
+database_name = "${D1_DATABASE_NAME}"
+database_id   = "${D1_DATABASE_ID}"
+
+[[r2_buckets]]
+binding     = "BUCKET"
+bucket_name = "${R2_BUCKET}"
+
+[vars]
+R2_PUBLIC_BASE = "${R2_PUBLIC_BASE}"
+
+# SNAPZ_TOKEN is a real secret — never here:
+#   wrangler secret put SNAPZ_TOKEN

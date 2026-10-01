@@ -1,0 +1,9 @@
+# generated from .env at deploy time — contains your resource IDs
+api/wrangler.toml
+
+# local secrets for `wrangler dev`
+api/.dev.vars
+api/.env
+
+node_modules/
+.wrangler/

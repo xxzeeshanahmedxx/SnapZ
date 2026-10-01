@@ -8,6 +8,29 @@ phone ──POST /api/snap──► Worker ──┬─► R2    (image bytes, k
                                    └─► D1    (day, ts, time, location, url)
 ```
 
+## Secrets vs. bindings vs. identifiers
+
+| Value | What it is | Where it lives | In git? |
+|---|---|---|---|
+| `SNAPZ_TOKEN` | **the only real credential** | `wrangler secret put` (encrypted at Cloudflare) | never |
+| Cloudflare API token | grants account access | `wrangler login`, on your machine | never |
+| `database_id`, `bucket_name` | **bindings** — resource names | `wrangler.toml`, generated from `.env` | no (git-ignored) |
+| `R2_PUBLIC_BASE` | a public URL | `[vars]` | harmless |
+
+**Why the D1/R2 IDs can't be secrets.** They're *bindings*, not runtime values.
+Wrangler reads them at **deploy** time to wire `env.DB` and `env.BUCKET` to real
+resources; by the time the Worker executes there is no ID to resolve. `wrangler secret`
+injects values at **runtime** — the wrong half of the lifecycle. Wrangler will refuse to
+deploy without a literal `database_id`.
+
+**They're also not credentials.** D1 has no public endpoint — it is reachable only from a
+Worker bound to it inside your account, or through the Cloudflare API with your account
+token. Per Cloudflare's own guidance, a database ID "is not a secret": it *names* a
+database, it doesn't open one.
+
+Still, they're yours, so `wrangler.toml` is **git-ignored and generated** from `api/.env`
+by `./deploy.sh`. Nothing identifying your account is committed.
+
 ## Deploy (about 5 minutes)
 
 ```bash
@@ -27,9 +50,14 @@ wrangler d1 execute snapz --remote --file=./schema.sql
 # 4. set your private access token (invent a long random string)
 wrangler secret put SNAPZ_TOKEN
 
-# 5. ship it
-wrangler deploy
+# 5. put your IDs in .env (git-ignored), then ship
+cp .env.example .env     # paste the database_id + bucket name
+./deploy.sh              # generates wrangler.toml, then deploys
 ```
+
+`deploy.sh` regenerates `wrangler.toml` from `.env` every run, so the committed tree
+never contains your resource IDs. For local development put `SNAPZ_TOKEN=...` in
+`api/.dev.vars` (also git-ignored) and run `wrangler dev`.
 
 Wrangler prints a URL like `https://snapz-api.<you>.workers.dev`.
 
