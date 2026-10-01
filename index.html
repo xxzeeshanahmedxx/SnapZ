@@ -21,6 +21,12 @@
 <main>
   <!-- ============ CAMERA ============ -->
   <section id="view-camera" class="view active">
+    <div id="sandboxWarn" class="warn" hidden>
+      <b>⚠️ The camera can't run inside this preview pane.</b>
+      <span>Browsers block camera access in sandboxed frames. Open the app in a real tab:</span>
+      <a id="openTab" class="btn primary sm" href="./" target="_blank" rel="noopener">Open SnapZ in a new tab ↗</a>
+    </div>
+
     <div class="streak-row">
       <div class="stat"><b id="statTotal">0</b><span>snaps</span></div>
       <div class="stat"><b id="statStreak">0</b><span>day streak</span></div>
@@ -32,7 +38,7 @@
       <canvas id="canvas" hidden></canvas>
       <img id="preview" alt="preview" hidden>
       <div id="flash" class="flash"></div>
-      <div id="stageMsg" class="stage-msg">Tap <b>Start camera</b> to begin</div>
+      <div id="stageMsg" class="stage-msg">Starting camera…</div>
     </div>
 
     <div id="metaLive" class="meta-live">
@@ -41,11 +47,14 @@
     </div>
 
     <div class="controls">
-      <button id="btnStart" class="btn">Start camera</button>
+      <button id="btnStart" class="btn ghost" hidden>Enable camera</button>
       <button id="btnFlip" class="btn ghost" disabled>Flip</button>
       <button id="btnShot" class="btn shoot" disabled>Capture</button>
       <button id="btnSave" class="btn primary" hidden>Save snap</button>
       <button id="btnRetake" class="btn ghost" hidden>Retake</button>
+      <label id="pickWrap" class="btn ghost" hidden>Use phone camera
+        <input id="pick" type="file" accept="image/*" capture="user" hidden>
+      </label>
     </div>
 
     <label class="geo-toggle">

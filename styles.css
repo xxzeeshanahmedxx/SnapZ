@@ -88,3 +88,12 @@ a.btn{text-decoration:none;display:inline-block}
   border-radius:10px;padding:9px;resize:vertical}
 .lb-actions{display:flex;flex-wrap:wrap;gap:7px;margin-top:12px}
 @media(max-width:720px){.lb-inner{grid-template-columns:1fr}.lb-inner img{max-height:45vh}}
+
+/* sandbox warning */
+.warn{display:flex;flex-direction:column;gap:8px;align-items:flex-start;
+  background:linear-gradient(180deg,#2a2033,#231b2c);border:1px solid #4a3a5e;
+  border-radius:14px;padding:14px 16px;margin-bottom:14px;font-size:13px;color:#e8dcf5}
+.warn b{font-size:14px}
+.warn span{color:#b4a6c8}
+.stage-msg b{display:block;font-size:15px;color:var(--txt);margin-bottom:6px}
+label.btn{cursor:pointer}

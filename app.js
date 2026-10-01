@@ -51,23 +51,69 @@ document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
 });
 
 /* ---------------- camera ---------------- */
+const inFrame = window.self !== window.top;
+
+function camFail(title, hint) {
+  $('stageMsg').hidden = false;
+  $('stageMsg').innerHTML = `<b>${title}</b><br><span style="opacity:.75">${hint}</span>`;
+  $('btnStart').hidden = false; $('btnStart').textContent = 'Try camera again';
+  $('pickWrap').hidden = false;          // always give a way to add a snap
+  $('btnShot').disabled = true; $('btnFlip').disabled = true;
+  say(title, 'err');
+}
+
 async function startCam() {
+  stopCam();
+  $('stageMsg').hidden = false; $('stageMsg').textContent = 'Starting camera…';
+
+  if (!window.isSecureContext)
+    return camFail('Insecure connection', 'Cameras only work on HTTPS or localhost.');
+  if (!navigator.mediaDevices?.getUserMedia)
+    return camFail('Camera API unavailable', inFrame
+      ? 'This page is inside a sandboxed frame. Open it in a real browser tab.'
+      : 'Your browser does not support getUserMedia.');
+
   try {
-    stopCam();
-    say('Requesting camera…');
     stream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: facing, width: { ideal: 1280 }, height: { ideal: 1706 } }, audio: false
     });
-    $('video').srcObject = stream;
-    $('video').style.transform = facing === 'user' ? 'scaleX(-1)' : 'none';
+    const v = $('video');
+    v.srcObject = stream;
+    await v.play().catch(() => {});
+    v.style.transform = facing === 'user' ? 'scaleX(-1)' : 'none';
     $('stageMsg').hidden = true;
+    $('btnStart').hidden = true;
+    $('pickWrap').hidden = true;
     $('btnShot').disabled = false; $('btnFlip').disabled = false;
-    $('btnStart').textContent = 'Restart camera';
     say('Camera live — smile 🙂', 'ok');
   } catch (e) {
-    say('Camera blocked: ' + e.message + ' (needs HTTPS + permission)', 'err');
+    const m = {
+      NotAllowedError:  ['Camera permission denied', inFrame
+        ? 'A sandboxed preview frame cannot be granted camera access. Open SnapZ in its own tab.'
+        : 'Click the 🔒 icon in the address bar and allow Camera, then retry.'],
+      NotFoundError:    ['No camera found', 'No video input device is connected to this machine.'],
+      NotReadableError: ['Camera is busy', 'Another app (Zoom, Teams, OBS…) is using it. Close it and retry.'],
+      OverconstrainedError: ['Camera not compatible', 'Retrying with default settings…']
+    }[e.name] || ['Camera error', e.message];
+    camFail(m[0], m[1]);
+    if (e.name === 'OverconstrainedError') {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        $('video').srcObject = stream; $('stageMsg').hidden = true;
+        $('btnStart').hidden = true; $('pickWrap').hidden = true;
+        $('btnShot').disabled = false; say('Camera live 🙂', 'ok');
+      } catch {}
+    }
   }
 }
+
+/* fallback: native phone/OS camera or a photo file */
+$('pick').onchange = e => {
+  const f = e.target.files[0]; if (!f) return;
+  shotBlob = f; shotMeta = { ts: Date.now() };
+  showPreview(URL.createObjectURL(f));
+  attachLocation();
+};
 function stopCam(){ if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; } }
 
 $('btnStart').onclick = startCam;
@@ -110,12 +156,20 @@ $('btnShot').onclick = async () => {
   const ts = Date.now();
   shotMeta = { ts };
 
-  $('preview').src = URL.createObjectURL(shotBlob);
-  $('preview').hidden = false; $('video').hidden = true;
-  $('btnSave').hidden = false; $('btnRetake').hidden = false;
-  $('btnShot').hidden = true; $('btnFlip').hidden = true; $('btnStart').hidden = true;
-  $('mTime').textContent = fmtTime(ts);
+  showPreview(URL.createObjectURL(shotBlob));
+  await attachLocation();
+};
 
+function showPreview(src) {
+  $('preview').src = src;
+  $('preview').hidden = false; $('video').hidden = true; $('stageMsg').hidden = true;
+  $('btnSave').hidden = false; $('btnRetake').hidden = false;
+  $('btnShot').hidden = true; $('btnFlip').hidden = true;
+  $('btnStart').hidden = true; $('pickWrap').hidden = true;
+  $('mTime').textContent = fmtTime(shotMeta.ts);
+}
+
+async function attachLocation() {
   $('mLoc').textContent = $('geoOn').checked ? 'locating…' : 'off';
   const pos = await getPos();
   if (pos) {
@@ -133,7 +187,10 @@ function resetShot() {
   shotBlob = null; shotMeta = null;
   $('preview').hidden = true; $('video').hidden = false;
   $('btnSave').hidden = true; $('btnRetake').hidden = true;
-  $('btnShot').hidden = false; $('btnFlip').hidden = false; $('btnStart').hidden = false;
+  $('btnShot').hidden = false; $('btnFlip').hidden = false;
+  $('pick').value = '';
+  if (stream) { $('btnStart').hidden = true; $('pickWrap').hidden = true; $('btnShot').disabled = false; }
+  else { $('btnStart').hidden = false; $('pickWrap').hidden = false; $('btnShot').disabled = true; $('stageMsg').hidden = false; }
   $('mLoc').textContent = 'not captured';
 }
 $('btnRetake').onclick = () => { resetShot(); say(''); };
@@ -238,3 +295,14 @@ $('btnWipe').onclick = async () => {
 /* go */
 refresh();
 $('mTime').textContent = fmtTime(Date.now());
+
+if (inFrame) {
+  $('sandboxWarn').hidden = false;
+  $('openTab').href = location.href;
+}
+// auto-start the camera as soon as the page loads
+startCam();
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && !stream && !shotBlob) startCam();
+});
+window.addEventListener('pagehide', stopCam);
