@@ -34,8 +34,8 @@ a{color:var(--text)}
 /* ================= CAMERA ================= */
 #video{width:100%;height:100%;object-fit:cover;display:block;background:#000}
 .flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none}
-.flash.go{animation:fl .32s var(--fade)}
-@keyframes fl{0%{opacity:.92}100%{opacity:0}}
+.flash.go{animation:fl .19s var(--fade)}
+@keyframes fl{0%{opacity:.7}100%{opacity:0}}
 
 .bar{position:absolute;left:0;right:0;bottom:0;height:150px;display:flex;align-items:center;
   justify-content:space-between;padding:0 28px calc(14px + env(safe-area-inset-bottom));
@@ -70,17 +70,35 @@ a{color:var(--text)}
 .thumb-wrap.done .thumb{border-color:var(--ok)}
 @keyframes draw{to{stroke-dashoffset:0}}
 
-/* ---- shutter: mechanical, springy ---- */
-.shutter{width:76px;height:76px;border-radius:50%;flex:0 0 auto;display:grid;place-items:center;
-  box-shadow:0 0 0 3px rgba(0,0,0,.3),0 0 0 6px rgba(255,255,255,.95);background:none;
-  transition:transform .35s var(--spring)}
-.shutter span{display:block;width:100%;height:100%;border-radius:50%;background:#fff;
-  transition:transform .35s var(--spring)}
-.shutter:active span{transform:scale(.86)}
-.shutter.fire span{animation:fire .34s var(--spring)}
-@keyframes fire{0%{transform:scale(1)}30%{transform:scale(.84)}70%{transform:scale(1.03)}100%{transform:scale(1)}}
-.shutter:disabled{opacity:.4}
-.shutter:disabled span{transform:scale(.9)}
+/* ---- shutter: a real one. Ring stays put, the fill does the work ---- */
+.shutter{width:74px;height:74px;border-radius:50%;flex:0 0 auto;padding:0;
+  display:grid;place-items:center;background:none;
+  border:3.5px solid rgba(255,255,255,.95);
+  transition:border-color .2s var(--fade)}
+.shutter span{display:block;width:58px;height:58px;border-radius:50%;background:#fff;
+  transition:transform .13s cubic-bezier(.3,0,.25,1),background-color .13s linear}
+
+/* press: instant and tight — no spring on the way down, that is what felt mushy */
+.shutter:active span{transform:scale(.84);background:#cfcdca}
+
+/* release: one quick dip, one small overshoot, done in 260ms */
+.shutter.fire span{animation:fire .26s cubic-bezier(.25,.9,.3,1.4)}
+@keyframes fire{
+  0%{transform:scale(.84);background:#cfcdca}
+  40%{transform:scale(1.04);background:#fff}
+  100%{transform:scale(1);background:#fff}
+}
+/* the ring breathes outward once, like an aperture */
+.shutter.fire{animation:iris .42s var(--snap)}
+@keyframes iris{
+  0%{box-shadow:0 0 0 0 rgba(255,255,255,.3)}
+  100%{box-shadow:0 0 0 13px rgba(255,255,255,0)}
+}
+/* busy is a whisper, not a blackout — the button must never look broken */
+.shutter:disabled{cursor:default}
+.shutter:disabled span{background:#e6e4e1}
+.shutter.off{opacity:.32;border-color:rgba(255,255,255,.6)}
+.shutter.off span{transform:scale(.86)}
 
 .flip{width:50px;height:50px;border-radius:50%;display:flex;align-items:center;justify-content:center;
   background:rgba(255,255,255,.13);flex:0 0 auto;transition:transform .45s var(--spring)}

@@ -78,7 +78,7 @@ function fallback(msg, retry = true) {
   $('fallback').hidden = false; $('fbMsg').textContent = msg;
   $('fbRetry').hidden = !retry; $('fbTab').hidden = !inFrame;
   if (inFrame) $('fbTab').href = location.href;
-  $('shutter').disabled = true;
+  $('shutter').disabled = true; $('shutter').classList.add('off');
 }
 
 async function startCam() {
@@ -110,7 +110,8 @@ async function startCam() {
     const v = $('video');
     v.srcObject = stream; await v.play().catch(() => {});
     v.style.transform = facing === 'user' ? 'scaleX(-1)' : 'none';
-    $('fallback').hidden = true; $('shutter').disabled = false;
+    $('fallback').hidden = true;
+    $('shutter').disabled = false; $('shutter').classList.remove('off');
     ready = true;                         // animations may start now
   } catch (e) {
     fallback({
@@ -203,8 +204,9 @@ async function capture() {
   busy = true; $('shutter').disabled = true;
   const sh = $('shutter');
   sh.classList.remove('fire'); void sh.offsetWidth; sh.classList.add('fire');
+  sh.addEventListener('animationend', () => sh.classList.remove('fire'), { once: true });
   $('flash').classList.remove('go'); void $('flash').offsetWidth; $('flash').classList.add('go');
-  navigator.vibrate?.(16);
+  navigator.vibrate?.(14);
 
   try {
     const mirror = facing === 'user';
