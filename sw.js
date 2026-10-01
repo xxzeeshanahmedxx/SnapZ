@@ -1,7 +1,7 @@
 /* SnapZ service worker — the app shell works with no connection at all.
    Photos live in IndexedDB (not here), so the camera is fully usable offline. */
 
-const VERSION = 'snapz-v3';
+const VERSION = 'snapz-v4';
 const SHELL = [
   './',
   './index.html',
@@ -10,6 +10,7 @@ const SHELL = [
   './enhance.js',
   './worker.js',
   './sync.js',
+  './lock.js',
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png'
