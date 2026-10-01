@@ -8,7 +8,17 @@ const $ = id => document.getElementById(id);
 const inFrame = window.self !== window.top;
 const BURST = 3;
 
-/* ---------- day gate: photos are viewable only on chosen days ---------- */
+/* ---------- motion ---------- */
+const SPRING = 'cubic-bezier(.22,1.2,.36,1)';
+const SNAP   = 'cubic-bezier(.2,.9,.3,1)';
+const still  = matchMedia('(prefers-reduced-motion: reduce)');
+let ready = false;                      // no motion until the camera is up
+const animate = (el, frames, opts) => {
+  if (!el || still.matches || !ready) return { finished: Promise.resolve() };
+  return el.animate(frames, { fill: 'both', ...opts });
+};
+
+/* ---------- day gate ---------- */
 const DAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 const openDays = () => { try { return JSON.parse(localStorage.getItem('snapz_days')) || [0,5]; }
                          catch { return [0,5]; } };
@@ -20,15 +30,20 @@ function nextOpen() {
     if (openDays().includes(d.getDay())) return d;
   }
 }
+const plural = list => list.length === 1 ? list[0] + 's'
+  : list.slice(0, -1).map(d => d + 's').join(', ') + ' and ' + list.at(-1) + 's';
 
-/* ---------- helpers ---------- */
-const fmtDate = ts => new Date(ts).toLocaleDateString(undefined, { weekday:'long', day:'numeric', month:'long', year:'numeric' });
+/* ---------- dates ---------- */
+const fmtDate  = ts => new Date(ts).toLocaleDateString(undefined, { weekday:'long', day:'numeric', month:'long', year:'numeric' });
 const fmtShort = ts => new Date(ts).toLocaleDateString(undefined, { day:'numeric', month:'short', year:'numeric' });
-const fmtTime = ts => new Date(ts).toLocaleTimeString(undefined, { hour:'numeric', minute:'2-digit' });
-const dayKey = ts => { const d = new Date(ts);
+const fmtTime  = ts => new Date(ts).toLocaleTimeString(undefined, { hour:'numeric', minute:'2-digit' });
+const fmtMonth = ts => new Date(ts).toLocaleDateString(undefined, { month:'long', year:'numeric' });
+const dayKey   = ts => { const d = new Date(ts);
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
+const mb = b => b >= 1048576 * 1024 ? (b/1073741824).toFixed(1) + ' GB' : (b/1048576).toFixed(1) + ' MB';
 
 let snaps = [], stream = null, track = null, imgCap = null, facing = 'user', busy = false;
+const cells = new Map();                 // day -> grid element, for the zoom
 
 /* ---------- background image processor ---------- */
 let worker = null, jobId = 0;
@@ -96,6 +111,7 @@ async function startCam() {
     v.srcObject = stream; await v.play().catch(() => {});
     v.style.transform = facing === 'user' ? 'scaleX(-1)' : 'none';
     $('fallback').hidden = true; $('shutter').disabled = false;
+    ready = true;                         // animations may start now
   } catch (e) {
     fallback({
       NotAllowedError: inFrame ? 'Camera blocked in this frame — open SnapZ in a tab.'
@@ -106,10 +122,34 @@ async function startCam() {
   }
 }
 $('fbRetry').onclick = startCam;
-$('flip').onclick = () => { facing = facing === 'user' ? 'environment' : 'user'; startCam(); };
+$('flip').onclick = e => {
+  e.currentTarget.classList.remove('turn'); void e.currentTarget.offsetWidth;
+  e.currentTarget.classList.add('turn');
+  facing = facing === 'user' ? 'environment' : 'user'; startCam();
+};
 $('shutter').onclick = () => capture();
 
-/* ---------- capture -> process -> upload ---------- */
+/* ---------- the thumbnail is the status object ---------- */
+const wrap = () => $('toGallery').parentElement;
+const RING = 182.2;
+function ring(state, p = 0) {
+  const w = wrap();
+  w.classList.toggle('busy',   state === 'saving' || state === 'uploading' || state === 'failed');
+  w.classList.toggle('saving', state === 'saving');
+  w.classList.toggle('failed', state === 'failed');
+  w.classList.toggle('done',   state === 'done');
+  $('ringFg').style.strokeDashoffset = state === 'saving' ? RING * 0.75
+    : state === 'done' ? 0 : RING * (1 - p);
+  if (state === 'saving') {
+    $('ring').style.animation = 'spin 1s linear infinite';
+  } else { $('ring').style.animation = ''; }
+  if (state === 'done') {
+    navigator.vibrate?.([0, 12]);
+    setTimeout(() => { w.classList.remove('done', 'busy'); }, 1700);
+  }
+}
+
+/* ---------- capture ---------- */
 function toCanvas(src, w, h, mirror) {
   const cv = document.createElement('canvas');
   cv.width = w; cv.height = h;
@@ -138,11 +178,33 @@ async function burst(mirror) {
   return toCanvas(flat, w, h, mirror);
 }
 
+/* the signature motion: the frame you just took flies into the thumbnail */
+function fly(dataUrl) {
+  if (still.matches || !ready) return;
+  const v = $('video').getBoundingClientRect();
+  const t = $('toGallery').getBoundingClientRect();
+  const f = $('flight');
+  f.hidden = false;
+  f.style.backgroundImage = `url(${dataUrl})`;
+  f.style.left = v.left + 'px'; f.style.top = v.top + 'px';
+  f.style.width = v.width + 'px'; f.style.height = v.height + 'px';
+  const sx = t.width / v.width, sy = t.height / v.height;
+  const dx = (t.left + t.width/2) - (v.left + v.width/2);
+  const dy = (t.top + t.height/2) - (v.top + v.height/2);
+  const a = f.animate(
+    [{ transform: 'none', opacity: 1, borderRadius: '0px' },
+     { transform: `translate(${dx}px,${dy}px) scale(${Math.max(sx,sy)})`, opacity: 0, borderRadius: '40px' }],
+    { duration: 480, easing: SNAP, fill: 'forwards' });
+  a.onfinish = () => { f.hidden = true; f.style.backgroundImage = ''; };
+}
+
 async function capture() {
   if (!stream || busy) return;
   busy = true; $('shutter').disabled = true;
+  const sh = $('shutter');
+  sh.classList.remove('fire'); void sh.offsetWidth; sh.classList.add('fire');
   $('flash').classList.remove('go'); void $('flash').offsetWidth; $('flash').classList.add('go');
-  navigator.vibrate?.(18);
+  navigator.vibrate?.(16);
 
   try {
     const mirror = facing === 'user';
@@ -160,6 +222,20 @@ async function capture() {
     }
     if (!cv) cv = await burst(mirror);
 
+    /* instant micro-preview — the thumbnail fills before the encode finishes */
+    const micro = document.createElement('canvas');
+    micro.width = 60; micro.height = Math.round(60 * cv.height / cv.width);
+    micro.getContext('2d').drawImage(cv, 0, 0, micro.width, micro.height);
+    const preview = micro.toDataURL('image/jpeg', 0.6);
+    fly(preview);
+    const t = $('toGallery');
+    setTimeout(() => {
+      if (!isOpen()) return;             // never leak an image on a closed day
+      t.style.backgroundImage = `url(${preview})`;
+      t.classList.remove('pop'); void t.offsetWidth; t.classList.add('pop');
+    }, 420);
+
+    ring('saving');
     const ts = Date.now(), day = dayKey(ts);
     const res = await process(await createImageBitmap(cv));
     const blob = res?.blob || await new Promise(r => cv.toBlob(r, 'image/webp', 0.9));
@@ -175,16 +251,19 @@ async function capture() {
 }
 
 async function send(rec) {
-  if (!cloud.getToken()) { await cloud.queue(rec); return note('saved locally — sign in to upload'); }
+  if (!cloud.getToken()) { await cloud.queue(rec); ring('failed'); return paint(); }
+  ring('uploading', 0.02);
   try {
-    const row = await cloud.upload(rec);
+    const row = await cloud.upload(rec, p => ring('uploading', Math.max(0.02, p)));
     await cloud.unqueue(rec.day);
     snaps = [row, ...snaps.filter(s => s.day !== row.day)];
     localStorage.setItem('snapz_index', JSON.stringify(snaps));
+    ring('done');                        // the server said yes — now you may relax
     paint();
-  } catch {
+  } catch (e) {
+    rec.tries = 1; rec.lastError = String(e.message || e);
     await cloud.queue(rec);
-    note('offline — will upload later');
+    ring('failed');
     paint();
   }
 }
@@ -197,13 +276,7 @@ $('pick').onchange = async e => {
   e.target.value = '';
 };
 
-let noteTimer;
-function note(msg) {
-  const h = $('gcount'); h.textContent = msg;
-  clearTimeout(noteTimer); noteTimer = setTimeout(paintCount, 2600);
-}
-
-/* ================= GALLERY (cloud only) ================= */
+/* ================= GALLERY ================= */
 async function refresh() {
   snaps = cloud.cachedList();            // instant paint from the last index
   paint();
@@ -213,46 +286,58 @@ async function refresh() {
   }
 }
 
+/* An honest ledger, not a statistic: how much is recorded, and whether the
+   record has holes. */
+function ledger() {
+  const el = $('ledger');
+  if (!snaps.length) { el.hidden = true; return; }
+  const days = [...snaps].sort((a, b) => a.ts - b.ts);
+  let gap = null;
+  for (let i = days.length - 1; i > 0; i--) {
+    const d = Math.round((new Date(days[i].day) - new Date(days[i-1].day)) / 86400000);
+    if (d > 1) { gap = days[i].day; break; }
+  }
+  const bytes = snaps.reduce((n, s) => n + (s.bytes || 0), 0);
+  const unbroken = gap ? `unbroken since ${fmtShort(new Date(gap).getTime())}`
+                       : `no missing days since ${fmtShort(days[0].ts)}`;
+  el.innerHTML = `<b>${snaps.length} day${snaps.length === 1 ? '' : 's'} recorded</b> · ${unbroken} · ${mb(bytes)}`;
+  el.hidden = false;
+}
+
+/* Failures are stated, never swallowed. */
+async function alertBar() {
+  const el = $('alert');
+  const q = await cloud.pending();
+  if (!q.length) { el.hidden = true; return; }
+  const worst = q.reduce((a, b) => (b.tries || 0) > (a.tries || 0) ? b : a);
+  const failed = (worst.tries || 0) > 0;
+  el.innerHTML = '';
+  const txt = document.createElement('span');
+  txt.textContent = failed
+    ? `${q.length} upload${q.length > 1 ? 's' : ''} failed${worst.tries > 1 ? ` · ${worst.tries} attempts` : ''}${worst.lastError ? ' · ' + worst.lastError : ''}`
+    : `${q.length} photo${q.length > 1 ? 's' : ''} waiting to upload`;
+  const btn = document.createElement('button');
+  btn.textContent = navigator.onLine ? 'Retry' : 'Offline';
+  btn.disabled = !navigator.onLine;
+  btn.onclick = async () => { btn.textContent = 'Sending…'; await cloud.flush(); await refresh(); };
+  el.append(txt, btn);
+  el.hidden = false;
+}
+
 function paintCount() {
   cloud.pending().then(q => {
-    const mb = snaps.reduce((n, s) => n + (s.bytes || 0), 0) / 1048576;
     $('gcount').textContent = snaps.length
-      ? `${snaps.length} ${snaps.length === 1 ? 'snap' : 'snaps'} · ${mb < 1024 ? mb.toFixed(mb < 10 ? 1 : 0) + ' MB' : (mb/1024).toFixed(1) + ' GB'}`
-        + (q.length ? ` · ${q.length} to upload` : '') + (navigator.onLine ? '' : ' · offline')
+      ? `${snaps.length} ${snaps.length === 1 ? 'snap' : 'snaps'}`
+        + (q.length ? ` · ${q.length} pending` : '') + (navigator.onLine ? '' : ' · offline')
       : (navigator.onLine ? '' : 'offline');
   });
 }
 
-function paint() {
-  const t = $('toGallery');
-  if (snaps[0] && isOpen()) {
-    t.classList.remove('shut');
-    t.style.backgroundImage = `url(${snaps[0].thumb_url || snaps[0].url})`;
-    t.classList.remove('pop'); void t.offsetWidth; t.classList.add('pop');
-  } else { t.style.backgroundImage = ''; t.classList.toggle('shut', !isOpen()); }
-
-  $('empty').hidden = snaps.length > 0;
-  $('playBtn').hidden = snaps.length < 2;
-  paintCount();
-
-  const grid = $('grid');
-  grid.innerHTML = '';
-
-  /* Closed day: no photos, but you still get proof that today's snap made it
-     to the cloud. Trust, but verify. */
-  if (!isOpen()) {
-    grid.appendChild(statusTile());
-    $('empty').hidden = true;
-    return;
-  }
-  for (const s of snaps) {
-    const i = new Image();
-    i.src = s.thumb_url || s.url;        // ~20 KB, not the full photo
-    i.loading = 'lazy'; i.decoding = 'async';
-    i.onclick = () => openViewer(s);
-    grid.appendChild(i);
-  }
-}
+const ICON = {
+  ok:   '<svg viewBox="0 0 24 24"><path d="M4 12.5l5.5 5.5L20 7"/></svg>',
+  wait: '<svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.2-8.6"/></svg>',
+  none: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/></svg>'
+};
 
 function statusTile() {
   const today = dayKey(Date.now());
@@ -260,46 +345,109 @@ function statusTile() {
   const el = document.createElement('div');
   el.className = 'tile status';
 
-  const set = (state, mark, head, sub) => {
-    el.classList.add(state);
-    el.innerHTML = `<span class="mark">${mark}</span>
+  const set = (state, head, sub) => {
+    el.className = 'tile status ' + state;
+    el.innerHTML = `<span class="mark">${ICON[state]}</span>
       <strong>${head}</strong><span class="sub">${sub}</span>`;
+    const n = nextOpen();
+    if (n) {
+      const f = document.createElement('span');
+      f.className = 'sub shut-note';
+      f.textContent = 'Photos open ' + DAYS[n.getDay()];
+      el.appendChild(f);
+    }
   };
 
-  if (done) {
-    const kb = done.bytes ? (done.bytes / 1048576).toFixed(1) + ' MB' : '';
-    set('ok', '&#10003;', 'Today is saved',
-        `${fmtTime(done.ts)}${kb ? ' · ' + kb : ''} · in the cloud`);
-  } else {
-    set('none', '&#9675;', 'No snap today', 'Tap the shutter');
+  if (done) set('ok', 'Today is saved',
+                `${fmtTime(done.ts)}${done.bytes ? ' · ' + mb(done.bytes) : ''} · confirmed by the server`);
+  else {
+    set('none', 'No snap today', 'Tap the shutter');
     cloud.pending().then(q => {
       const w = q.find(r => r.day === today);
-      if (w) { el.className = 'tile status wait';
-        set('wait', '&#8635;', 'Waiting to upload',
-            `Taken ${fmtTime(w.ts)} · still on this phone`); }
+      if (w) set('wait', 'Waiting to upload', `Taken ${fmtTime(w.ts)} · still on this phone`);
     });
-  }
-
-  const n = nextOpen();
-  if (n) {
-    const foot = document.createElement('span');
-    foot.className = 'sub shut-note';
-    foot.textContent = 'Photos open ' + DAYS[n.getDay()];
-    el.appendChild(foot);
   }
   return el;
 }
 
+let firstPaint = true;
+function paint() {
+  const t = $('toGallery');
+  if (snaps[0] && isOpen()) {
+    t.classList.remove('shut');
+    if (!wrap().classList.contains('busy'))
+      t.style.backgroundImage = `url(${snaps[0].thumb_url || snaps[0].url})`;
+  } else if (!isOpen()) { t.style.backgroundImage = ''; t.classList.add('shut'); }
+  else t.classList.remove('shut');
+
+  $('playBtn').hidden = snaps.length < 2;
+  paintCount(); alertBar();
+
+  const grid = $('grid');
+  grid.innerHTML = '';
+  cells.clear();
+
+  if (!isOpen()) {
+    $('ledger').hidden = true;
+    $('empty').hidden = true;
+    grid.appendChild(statusTile());
+    return;
+  }
+
+  ledger();
+  $('empty').hidden = snaps.length > 0;
+
+  let month = '', n = 0;
+  for (const s of snaps) {
+    const m = fmtMonth(s.ts);
+    if (m !== month) {
+      month = m;
+      const h = document.createElement('div');
+      h.className = 'month'; h.textContent = m;
+      grid.appendChild(h);
+    }
+    const cell = document.createElement('button');
+    cell.className = 'cell';
+    const i = new Image();
+    i.src = s.thumb_url || s.url;        // ~20 KB, not the full photo
+    i.loading = 'lazy'; i.decoding = 'async'; i.alt = '';
+    i.onload = () => i.classList.add('in');
+    if (i.complete) i.classList.add('in');
+    const d = document.createElement('span');
+    d.className = 'dnum'; d.textContent = new Date(s.ts).getDate();
+    cell.append(i, d);
+    cell.onclick = () => openViewer(s, cell);
+    if (firstPaint && n < 12 && !still.matches) {
+      cell.classList.add('enter');
+      cell.style.animationDelay = (n * 22) + 'ms';
+    }
+    grid.appendChild(cell);
+    cells.set(s.day, cell);
+    n++;
+  }
+  firstPaint = false;
+}
+
+/* day numbers appear only when you stop scrolling */
+let restTimer;
+$('gal').addEventListener('scroll', () => {
+  $('grid').classList.remove('rest');
+  clearTimeout(restTimer);
+  restTimer = setTimeout(() => $('grid').classList.add('rest'), 220);
+}, { passive: true });
+
 const show = id => document.querySelectorAll('.screen').forEach(s =>
   ['viewer','lapse','gate','login'].includes(s.id) ? 0 : s.classList.toggle('on', s.id === id));
-$('toGallery').onclick = () => { show('gal'); refresh(); };
+$('toGallery').onclick = () => { show('gal'); $('grid').classList.add('rest'); refresh(); };
 $('toCam').onclick = () => show('cam');
 
 /* ---------- day gate ---------- */
 let gateTimer;
 function gate() {
+  const names = openDays().map(d => DAYS[d]);
   $('gateDay').textContent = DAYS[new Date().getDay()].slice(0, 3);
-  $('gateMsg').textContent = 'Your photos open on ' + openDays().map(d => DAYS[d]).join(' and ') + '.';
+  $('gateTitle').textContent = 'You chose ' + plural(names);
+  $('gateMsg').textContent = 'Your photos open then. Today they stay closed.';
   $('gate').hidden = false;
   clearInterval(gateTimer);
   const tick = () => {
@@ -314,29 +462,127 @@ function gate() {
 $('gateClose').onclick = () => { clearInterval(gateTimer); $('gate').hidden = true; show('cam'); };
 
 /* ================= VIEWER ================= */
-let cur = null;
-function openViewer(s) {
-  if (!isOpen()) return gate();
+let cur = null, fromCell = null;
+
+function fill(s) {
+  const fade = $('vFade');
+  fade.classList.add('swap');
+  setTimeout(() => {
+    $('vPlace').textContent = s.place || '';
+    $('vDate').textContent  = fmtDate(s.ts);
+    $('vTime').textContent  = fmtTime(s.ts)
+      + (s.lat != null ? ` · ${s.lat}, ${s.lon}${s.accuracy ? ` ±${Math.round(s.accuracy)}m` : ''}` : '');
+    $('vProof').textContent = `Confirmed by the server · ${s.time || ''}${s.bytes ? ' · ' + mb(s.bytes) : ''}`;
+    $('vMap').hidden = s.lat == null;
+    if (s.lat != null) $('vMap').href = `https://www.openstreetmap.org/?mlat=${s.lat}&mlon=${s.lon}#map=17/${s.lat}/${s.lon}`;
+    $('vOpen').href = s.url;
+    $('vDl').href = s.url; $('vDl').download = `snapz-${s.day}.webp`;
+    $('vPos').textContent = `${snaps.indexOf(s) + 1} of ${snaps.length}`;
+    fade.classList.remove('swap');
+  }, still.matches ? 0 : 200);
+}
+
+function load(s) {
   cur = s;
   $('vImg').src = s.thumb_url || s.url;          // show instantly…
   const full = new Image();
   full.onload = () => { if (cur === s) $('vImg').src = s.url; };
   full.src = s.url;                              // …then swap in full resolution
-  $('vDate').textContent = fmtDate(s.ts);
-  $('vTime').textContent = fmtTime(s.ts);
-  $('vPlace').textContent = s.place || (s.lat != null ? `${s.lat}, ${s.lon}` : '');
-  $('vPlace').hidden = !s.place && s.lat == null;
-  $('vMap').hidden = s.lat == null;
-  if (s.lat != null) $('vMap').href = `https://www.openstreetmap.org/?mlat=${s.lat}&mlon=${s.lon}#map=17/${s.lat}/${s.lon}`;
-  $('vOpen').href = s.url;
-  $('vDl').href = s.url; $('vDl').download = `snapz-${s.day}.webp`;
-  $('viewer').hidden = false;
+  fill(s);
 }
-$('vClose').onclick = () => { $('viewer').hidden = true; cur = null; };
+
+/* Where the photo will land, computed rather than measured — the image may not
+   have decoded yet when the zoom has to start. */
+function targetRect(s) {
+  const vw = innerWidth, vh = innerHeight;
+  const w = s.width || 3, h = s.height || 4;
+  const k = Math.min(vw / w, vh / h);
+  const tw = w * k, th = h * k;
+  return { width: tw, height: th, left: (vw - tw) / 2, top: (vh - th) / 2 };
+}
+
+function openViewer(s, cell) {
+  if (!isOpen()) return gate();
+  fromCell = cell || cells.get(s.day) || null;
+  load(s);
+  $('viewer').hidden = false;
+
+  /* shared-element zoom: the tile you tapped becomes the photo */
+  if (fromCell && !still.matches) {
+    const from = fromCell.getBoundingClientRect();
+    const to = targetRect(s);
+    if (to.width && to.height) {
+      fromCell.classList.add('ghost');
+      const k = Math.max(from.width / to.width, from.height / to.height);
+      const dx = (from.left + from.width/2) - (to.left + to.width/2);
+      const dy = (from.top + from.height/2) - (to.top + to.height/2);
+      animate($('vStage'),
+        [{ transform: `translate(${dx}px,${dy}px) scale(${k})`, opacity: .55 },
+         { transform: 'none', opacity: 1 }],
+        { duration: 400, easing: SNAP });
+      animate($('vFade'), [{ opacity: 0, transform: 'translateY(10px)' }, { opacity: 1, transform: 'none' }],
+        { duration: 340, delay: 90, easing: SNAP });
+    }
+  }
+}
+
+function closeViewer() {
+  const s = cur, cell = fromCell;
+  const done = () => { $('viewer').hidden = true; cur = null;
+    cell?.classList.remove('ghost'); $('vStage').style.transform = ''; };
+  if (!s || !cell || still.matches) return done();
+  const from = cell.getBoundingClientRect();
+  const to = targetRect(s);
+  if (!to.width || !from.width) return done();
+  const k = Math.max(from.width / to.width, from.height / to.height);
+  const dx = (from.left + from.width/2) - (to.left + to.width/2);
+  const dy = (from.top + from.height/2) - (to.top + to.height/2);
+  animate($('vFade'), [{ opacity: 1 }, { opacity: 0 }], { duration: 160, easing: 'linear' });
+  const a = animate($('vStage'),
+    [{ transform: 'none', opacity: 1 },
+     { transform: `translate(${dx}px,${dy}px) scale(${k})`, opacity: 0 }],
+    { duration: 300, easing: SNAP });
+  a.finished.then(done).catch(done);
+}
+$('vClose').onclick = closeViewer;
+
+/* swipe between days — scrubbing your own year is the point of this app */
+let sx = 0, sy = 0, dragging = false, locked = null;
+const stage = $('vStage');
+stage.addEventListener('pointerdown', e => {
+  if (!cur) return;
+  dragging = true; locked = null; sx = e.clientX; sy = e.clientY;
+});
+stage.addEventListener('pointermove', e => {
+  if (!dragging) return;
+  const dx = e.clientX - sx, dy = e.clientY - sy;
+  if (!locked && Math.abs(dx) + Math.abs(dy) > 10) locked = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+  if (locked === 'x') stage.style.transform = `translateX(${dx * 0.55}px)`;
+});
+const endDrag = e => {
+  if (!dragging) return;
+  dragging = false;
+  const dx = (e.clientX ?? sx) - sx;
+  stage.style.transition = 'transform .32s ' + SPRING;
+  stage.style.transform = '';
+  setTimeout(() => { stage.style.transition = ''; }, 340);
+  if (locked !== 'x' || Math.abs(dx) < 55) return;
+  const i = snaps.indexOf(cur);
+  const next = snaps[dx < 0 ? i + 1 : i - 1];   // newest first, so left = older
+  if (!next) return;
+  navigator.vibrate?.(8);
+  fromCell = cells.get(next.day) || null;
+  load(next);
+  animate(stage, [{ transform: `translateX(${dx < 0 ? 40 : -40}px)`, opacity: .4 },
+                  { transform: 'none', opacity: 1 }], { duration: 300, easing: SNAP });
+};
+stage.addEventListener('pointerup', endDrag);
+stage.addEventListener('pointercancel', endDrag);
+
 $('vDel').onclick = async () => {
   if (!cur || !confirm('Delete this snap?')) return;
   const day = cur.day;
-  $('viewer').hidden = true; cur = null;
+  closeViewer();
   await cloud.remove(day);
   snaps = snaps.filter(s => s.day !== day);
   localStorage.setItem('snapz_index', JSON.stringify(snaps));
@@ -396,6 +642,21 @@ $('lSave').onclick = async () => {
   recorder.stop();
 };
 
+/* ---- export: verifiable, not just pretty ---- */
+$('menu').onclick = () => {
+  if (!isOpen()) return gate();
+  const out = {
+    exported: new Date().toISOString(),
+    source: cloud.apiBase(),
+    note: 'Each entry lists the R2 object key and its byte count so this export can be checked against the bucket.',
+    count: snaps.length,
+    snaps
+  };
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' }));
+  a.download = 'snapz-metadata.json'; a.click();
+};
+
 /* ================= LOGIN / SETTINGS ================= */
 async function showLogin() {
   let first = false;
@@ -416,7 +677,10 @@ async function doLogin() {
     $('login').hidden = true;
     await cloud.flush();
     await refresh();
-  } catch (e) { $('lockErr').textContent = String(e.message || e); $('lockErr').hidden = false; }
+  } catch (e) {
+    $('lockErr').hidden = true; void $('lockErr').offsetWidth;
+    $('lockErr').textContent = String(e.message || e); $('lockErr').hidden = false;
+  }
   finally { $('lockGo').disabled = false; $('lockGo').textContent = 'Continue'; }
 }
 $('lockGo').onclick = doLogin;
@@ -427,6 +691,7 @@ let press = null;
 $('toGallery').addEventListener('pointerdown', () => {
   press = setTimeout(async () => {
     press = null;
+    navigator.vibrate?.(14);
     if (!cloud.getToken()) { localStorage.removeItem('snapz_nocloud'); return showLogin(); }
     const c = prompt('Type: days · passcode · signout · api', '');
     if (c === 'days') {
@@ -451,9 +716,14 @@ $('toGallery').addEventListener('pointerdown', () => {
   $('toGallery').addEventListener(ev, () => { clearTimeout(press); press = null; }));
 
 document.addEventListener('keydown', e => {
+  if (!$('viewer').hidden && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+    const n = snaps[snaps.indexOf(cur) + (e.key === 'ArrowRight' ? 1 : -1)];
+    if (n) { fromCell = cells.get(n.day) || null; load(n); }
+    return;
+  }
   if (e.key !== 'Escape') return;
   if (!$('lapse').hidden) $('lClose').onclick();
-  else if (!$('viewer').hidden) $('vClose').onclick();
+  else if (!$('viewer').hidden) closeViewer();
   else if (!$('gate').hidden) $('gateClose').onclick();
   else show('cam');
 });
@@ -462,7 +732,7 @@ document.addEventListener('keydown', e => {
 if ('serviceWorker' in navigator)
   addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
 addEventListener('online', async () => { await cloud.flush(); refresh(); });
-addEventListener('offline', paintCount);
+addEventListener('offline', () => { paintCount(); alertBar(); });
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && !stream) startCam();
 });
@@ -472,11 +742,3 @@ startCam();
 refresh();
 cloud.flush();
 if (!cloud.getToken() && !localStorage.getItem('snapz_nocloud')) showLogin();
-
-/* JSON export of the metadata D1 holds */
-$('menu').onclick = () => {
-  if (!isOpen()) return gate();
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([JSON.stringify(snaps, null, 2)], { type: 'application/json' }));
-  a.download = 'snapz-metadata.json'; a.click();
-};

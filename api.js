@@ -49,7 +49,7 @@ export const cachedList = () => {
   try { return JSON.parse(localStorage.getItem('snapz_index')) || []; } catch { return []; }
 };
 
-export async function upload({ day, ts, blob, thumb, lat, lon, acc, place, w, h }) {
+export async function upload({ day, ts, blob, thumb, lat, lon, acc, place, w, h }, onProgress) {
   const fd = new FormData();
   fd.set('image', blob, `${day}.webp`);
   if (thumb) fd.set('thumb', thumb, `${day}-t.webp`);
@@ -62,9 +62,27 @@ export async function upload({ day, ts, blob, thumb, lat, lon, acc, place, w, h 
   if (place) fd.set('place', place);
   if (w) { fd.set('width', w); fd.set('height', h); }
 
-  const r = await fetch(`${apiBase()}/api/snap`, { method: 'POST', headers: auth(), body: fd });
-  const d = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(d.error || `upload failed ${r.status}`);
+  /* XHR, not fetch: it is the only way to get real upload progress, and a
+     progress bar that reflects actual bytes is the difference between a
+     reassurance and a lie. */
+  const d = await new Promise((res, rej) => {
+    const x = new XMLHttpRequest();
+    x.open('POST', `${apiBase()}/api/snap`);
+    x.setRequestHeader('authorization', `Bearer ${getToken()}`);
+    x.upload.onprogress = e => {
+      if (e.lengthComputable && onProgress) onProgress(e.loaded / e.total);
+    };
+    x.onload = () => {
+      let j = {}; try { j = JSON.parse(x.responseText); } catch {}
+      if (x.status >= 200 && x.status < 300) res(j);
+      else rej(new Error(j.error || `upload failed ${x.status}`));
+    };
+    x.onerror = () => rej(new Error('network'));
+    x.ontimeout = () => rej(new Error('timed out'));
+    x.timeout = 180000;
+    x.send(fd);
+  });
+  onProgress?.(1);
   return d.snap;
 }
 
@@ -89,12 +107,18 @@ export const queue    = rec => tx('readwrite', s => s.put(rec));
 export const unqueue  = day => tx('readwrite', s => s.delete(day));
 export const pending  = () => tx('readonly', s => s.getAll());
 
-export async function flush() {
+export async function flush(onProgress) {
   if (!navigator.onLine || !getToken()) return 0;
   let sent = 0;
   for (const rec of await pending()) {
-    try { await upload(rec); await unqueue(rec.day); sent++; }
-    catch { break; }                    // still offline / server down — try later
+    try { await upload(rec, onProgress); await unqueue(rec.day); sent++; }
+    catch (e) {
+      /* Record the failure instead of hiding it — the UI shows the count. */
+      rec.tries = (rec.tries || 0) + 1;
+      rec.lastError = String(e.message || e);
+      await queue(rec);
+      break;                            // still offline / server down — try later
+    }
   }
   return sent;
 }

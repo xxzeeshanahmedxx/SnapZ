@@ -74,10 +74,33 @@ Your passcode protects the **API**, not the phone. It is PBKDF2-hashed in D1;
 logging in returns a signed token kept in `localStorage` for a year. Without it,
 nobody can read your photos even with the API URL.
 
-## 6. Storage keys
+## 6. Feel — what the motion is doing
+
+Nothing here is decoration; each piece answers a question you would otherwise
+have to trust blindly.
+
+- **Shutter** springs with a slight overshoot, so the tap feels mechanical.
+- **The captured frame flies into the thumbnail** — the app's one signature
+  motion, and the clearest possible statement that the photo went *somewhere*.
+- **The thumbnail wears a progress ring.** White while encoding, green filling
+  with the real byte progress of the upload, then a check that draws itself when
+  **the server** acknowledges. Red if it failed. You never have to wonder.
+- **Saved and uploaded are never shown as the same thing.** A queued photo looks
+  different from a confirmed one, everywhere.
+- **The grid is a timeline:** sticky month headers, tiles fading up in sequence
+  on first paint, and the day number appearing on each tile when you stop
+  scrolling.
+- **Tapping a tile zooms that tile into the viewer** and back out on close, so
+  you never lose your place.
+- **Swipe left/right in the viewer** moves through the archive; the metadata
+  cross-fades rather than jumping.
+- Everything animates transform and opacity only, nothing runs before the camera
+  is live, and `prefers-reduced-motion` disables all of it.
+
+## 7. Storage keys
 `snapz_api`, `snapz_token`, `snapz_index` (cached list for instant paint),
 `snapz_days`, `snapz_nocloud`, plus the `snapz-outbox` IndexedDB database.
 
-## 7. Removed
+## 8. Removed
 Face Mesh, the stats dashboard, the PIN screen, WebAuthn/passkeys, the local
 photo store and the old `sync.js` two-way sync are all gone.
