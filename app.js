@@ -1,310 +1,179 @@
-/* SnapZ — personal daily selfie camera + gallery
-   Storage: IndexedDB (image blobs + metadata), 100% local to your device. */
+/* SnapZ — a pure camera.
+   Tap the shutter, it's saved. Time + place are recorded silently in the
+   background and only ever shown later, in the gallery. */
 
 const $ = id => document.getElementById(id);
-const DB_NAME = 'snapz', STORE = 'snaps';
+const DB = 'snapz', STORE = 'snaps';
+const inFrame = window.self !== window.top;
 
-/* ---------------- IndexedDB ---------------- */
-let dbp = new Promise((res, rej) => {
-  const r = indexedDB.open(DB_NAME, 1);
-  r.onupgradeneeded = () => {
-    const db = r.result;
-    if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'id' });
-  };
-  r.onsuccess = () => res(r.result);
-  r.onerror = () => rej(r.error);
+/* ---------------- storage ---------------- */
+const dbp = new Promise((res, rej) => {
+  const r = indexedDB.open(DB, 1);
+  r.onupgradeneeded = () => { const d = r.result;
+    if (!d.objectStoreNames.contains(STORE)) d.createObjectStore(STORE, { keyPath: 'id' }); };
+  r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
 });
-const tx = async (mode, fn) => {
-  const db = await dbp;
-  return new Promise((res, rej) => {
-    const t = db.transaction(STORE, mode), s = t.objectStore(STORE);
-    const out = fn(s);
-    t.oncomplete = () => res(out?.result ?? out);
-    t.onerror = () => rej(t.error);
-  });
-};
+const tx = async (mode, fn) => { const db = await dbp;
+  return new Promise((res, rej) => { const t = db.transaction(STORE, mode);
+    const out = fn(t.objectStore(STORE));
+    t.oncomplete = () => res(out?.result ?? out); t.onerror = () => rej(t.error); }); };
 const dbAll = () => tx('readonly', s => s.getAll());
 const dbPut = v => tx('readwrite', s => s.put(v));
 const dbDel = id => tx('readwrite', s => s.delete(id));
-const dbClear = () => tx('readwrite', s => s.clear());
 
-/* ---------------- state ---------------- */
-let stream = null, facing = 'user', shotBlob = null, shotMeta = null;
-let snaps = [], urls = new Map();
+/* ---------------- helpers ---------------- */
+const fmtDate = ts => new Date(ts).toLocaleDateString(undefined, { weekday:'long', day:'numeric', month:'long', year:'numeric' });
+const fmtTime = ts => new Date(ts).toLocaleTimeString(undefined, { hour:'numeric', minute:'2-digit' });
+const dayKey = ts => { const d = new Date(ts);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
 
-const fmtDate = ts => new Date(ts).toLocaleDateString(undefined, { weekday:'short', year:'numeric', month:'short', day:'numeric' });
-const fmtTime = ts => new Date(ts).toLocaleTimeString(undefined, { hour:'2-digit', minute:'2-digit', second:'2-digit' });
-const dayKey  = ts => { const d = new Date(ts); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
-const say = (msg, cls = '') => { const s = $('status'); s.textContent = msg; s.className = 'status ' + cls; };
+let snaps = [], urls = new Map(), stream = null, facing = 'user', busy = false;
+const urlFor = s => { if (!urls.has(s.id)) urls.set(s.id, URL.createObjectURL(s.blob)); return urls.get(s.id); };
 
-function urlFor(s) {
-  if (!urls.has(s.id)) urls.set(s.id, URL.createObjectURL(s.blob));
-  return urls.get(s.id);
-}
-
-/* ---------------- tabs ---------------- */
-document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
-  document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
-  document.querySelectorAll('.view').forEach(x => x.classList.remove('active'));
-  t.classList.add('active');
-  $('view-' + t.dataset.view).classList.add('active');
-});
-
-/* ---------------- camera ---------------- */
-const inFrame = window.self !== window.top;
-
-function camFail(title, hint) {
-  $('stageMsg').hidden = false;
-  $('stageMsg').innerHTML = `<b>${title}</b><br><span style="opacity:.75">${hint}</span>`;
-  $('btnStart').hidden = false; $('btnStart').textContent = 'Try camera again';
-  $('pickWrap').hidden = false;          // always give a way to add a snap
-  $('btnShot').disabled = true; $('btnFlip').disabled = true;
-  say(title, 'err');
-}
-
-async function startCam() {
-  stopCam();
-  $('stageMsg').hidden = false; $('stageMsg').textContent = 'Starting camera…';
-
-  if (!window.isSecureContext)
-    return camFail('Insecure connection', 'Cameras only work on HTTPS or localhost.');
-  if (!navigator.mediaDevices?.getUserMedia)
-    return camFail('Camera API unavailable', inFrame
-      ? 'This page is inside a sandboxed frame. Open it in a real browser tab.'
-      : 'Your browser does not support getUserMedia.');
-
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: facing, width: { ideal: 1280 }, height: { ideal: 1706 } }, audio: false
-    });
-    const v = $('video');
-    v.srcObject = stream;
-    await v.play().catch(() => {});
-    v.style.transform = facing === 'user' ? 'scaleX(-1)' : 'none';
-    $('stageMsg').hidden = true;
-    $('btnStart').hidden = true;
-    $('pickWrap').hidden = true;
-    $('btnShot').disabled = false; $('btnFlip').disabled = false;
-    say('Camera live — smile 🙂', 'ok');
-  } catch (e) {
-    const m = {
-      NotAllowedError:  ['Camera permission denied', inFrame
-        ? 'A sandboxed preview frame cannot be granted camera access. Open SnapZ in its own tab.'
-        : 'Click the 🔒 icon in the address bar and allow Camera, then retry.'],
-      NotFoundError:    ['No camera found', 'No video input device is connected to this machine.'],
-      NotReadableError: ['Camera is busy', 'Another app (Zoom, Teams, OBS…) is using it. Close it and retry.'],
-      OverconstrainedError: ['Camera not compatible', 'Retrying with default settings…']
-    }[e.name] || ['Camera error', e.message];
-    camFail(m[0], m[1]);
-    if (e.name === 'OverconstrainedError') {
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: true });
-        $('video').srcObject = stream; $('stageMsg').hidden = true;
-        $('btnStart').hidden = true; $('pickWrap').hidden = true;
-        $('btnShot').disabled = false; say('Camera live 🙂', 'ok');
-      } catch {}
-    }
-  }
-}
-
-/* fallback: native phone/OS camera or a photo file */
-$('pick').onchange = e => {
-  const f = e.target.files[0]; if (!f) return;
-  shotBlob = f; shotMeta = { ts: Date.now() };
-  showPreview(URL.createObjectURL(f));
-  attachLocation();
-};
-function stopCam(){ if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; } }
-
-$('btnStart').onclick = startCam;
-$('btnFlip').onclick = () => { facing = facing === 'user' ? 'environment' : 'user'; startCam(); };
-
-/* live clock */
-setInterval(() => { if (!shotBlob) $('mTime').textContent = fmtTime(Date.now()); }, 1000);
-
-/* ---------------- geolocation ---------------- */
-function getPos() {
-  return new Promise(res => {
-    if (!$('geoOn').checked || !navigator.geolocation) return res(null);
-    navigator.geolocation.getCurrentPosition(
-      p => res({ lat: +p.coords.latitude.toFixed(6), lon: +p.coords.longitude.toFixed(6), acc: Math.round(p.coords.accuracy) }),
-      () => res(null), { enableHighAccuracy: true, timeout: 9000, maximumAge: 60000 });
-  });
+/* ---------------- silent location ----------------
+   Kept warm in the background so saving a snap is instant. Never rendered
+   on the camera screen — it's only written to the record. */
+let lastPos = null;
+if (navigator.geolocation) {
+  navigator.geolocation.watchPosition(
+    p => { lastPos = { lat:+p.coords.latitude.toFixed(6), lon:+p.coords.longitude.toFixed(6),
+                       acc: Math.round(p.coords.accuracy), at: Date.now() }; },
+    () => {}, { enableHighAccuracy:true, maximumAge:120000, timeout:20000 });
 }
 async function placeName(lat, lon) {
   try {
-    const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&zoom=16&lat=${lat}&lon=${lon}`,
-      { headers: { 'Accept': 'application/json' } });
-    const j = await r.json();
-    const a = j.address || {};
+    const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&zoom=16&lat=${lat}&lon=${lon}`);
+    const a = (await r.json()).address || {};
     return [a.suburb || a.neighbourhood || a.road, a.city || a.town || a.village || a.county, a.country]
-      .filter(Boolean).join(', ') || j.display_name || '';
+      .filter(Boolean).join(', ');
   } catch { return ''; }
 }
 
-/* ---------------- capture ---------------- */
-$('btnShot').onclick = async () => {
-  const v = $('video'), c = $('canvas');
+/* ---------------- camera ---------------- */
+function showFallback(msg, retry = true) {
+  $('fallback').hidden = false;
+  $('fbMsg').textContent = msg;
+  $('fbRetry').hidden = !retry;
+  $('fbTab').hidden = !inFrame;
+  if (inFrame) $('fbTab').href = location.href;
+  $('shutter').disabled = true;
+}
+async function startCam() {
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = null;
+  if (!window.isSecureContext) return showFallback('Camera needs HTTPS or localhost.', false);
+  if (!navigator.mediaDevices?.getUserMedia)
+    return showFallback(inFrame ? 'Camera is blocked inside this preview frame.' : 'Camera not supported here.', false);
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: facing, width:{ ideal:1440 }, height:{ ideal:1920 } }, audio:false });
+    const v = $('video');
+    v.srcObject = stream; await v.play().catch(()=>{});
+    v.style.transform = facing === 'user' ? 'scaleX(-1)' : 'none';
+    $('fallback').hidden = true; $('shutter').disabled = false;
+  } catch (e) {
+    showFallback({
+      NotAllowedError: inFrame ? 'Camera blocked in this preview frame — open SnapZ in a real tab.'
+                               : 'Camera permission denied. Allow it in your browser settings.',
+      NotFoundError: 'No camera found on this device.',
+      NotReadableError: 'Camera is in use by another app.'
+    }[e.name] || ('Camera error: ' + e.message));
+  }
+}
+$('fbRetry').onclick = startCam;
+$('flip').onclick = () => { facing = facing === 'user' ? 'environment' : 'user'; startCam(); };
+
+/* ---------------- capture = save, no review ---------------- */
+$('shutter').onclick = async () => {
+  if (!stream || busy) return;
+  busy = true;
+  const v = $('video'), c = document.createElement('canvas');
   c.width = v.videoWidth; c.height = v.videoHeight;
-  const ctx = c.getContext('2d');
-  if (facing === 'user') { ctx.translate(c.width, 0); ctx.scale(-1, 1); }
-  ctx.drawImage(v, 0, 0, c.width, c.height);
+  const g = c.getContext('2d');
+  if (facing === 'user') { g.translate(c.width, 0); g.scale(-1, 1); }
+  g.drawImage(v, 0, 0, c.width, c.height);
 
   $('flash').classList.remove('go'); void $('flash').offsetWidth; $('flash').classList.add('go');
+  if (navigator.vibrate) navigator.vibrate(18);
 
-  shotBlob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.9));
-  const ts = Date.now();
-  shotMeta = { ts };
-
-  showPreview(URL.createObjectURL(shotBlob));
-  await attachLocation();
+  const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.92));
+  await save(blob, Date.now());
+  busy = false;
 };
+$('pick').onchange = async e => { const f = e.target.files[0]; if (f) await save(f, Date.now()); e.target.value = ''; };
 
-function showPreview(src) {
-  $('preview').src = src;
-  $('preview').hidden = false; $('video').hidden = true; $('stageMsg').hidden = true;
-  $('btnSave').hidden = false; $('btnRetake').hidden = false;
-  $('btnShot').hidden = true; $('btnFlip').hidden = true;
-  $('btnStart').hidden = true; $('pickWrap').hidden = true;
-  $('mTime').textContent = fmtTime(shotMeta.ts);
-}
-
-async function attachLocation() {
-  $('mLoc').textContent = $('geoOn').checked ? 'locating…' : 'off';
-  const pos = await getPos();
-  if (pos) {
-    shotMeta.lat = pos.lat; shotMeta.lon = pos.lon; shotMeta.acc = pos.acc;
-    $('mLoc').textContent = `${pos.lat}, ${pos.lon} (±${pos.acc}m)`;
-    const name = await placeName(pos.lat, pos.lon);
-    if (name) { shotMeta.place = name; $('mLoc').textContent = name; }
-  } else if ($('geoOn').checked) {
-    $('mLoc').textContent = 'unavailable';
-  }
-  say('Looking good? Hit Save snap.', 'ok');
-};
-
-function resetShot() {
-  shotBlob = null; shotMeta = null;
-  $('preview').hidden = true; $('video').hidden = false;
-  $('btnSave').hidden = true; $('btnRetake').hidden = true;
-  $('btnShot').hidden = false; $('btnFlip').hidden = false;
-  $('pick').value = '';
-  if (stream) { $('btnStart').hidden = true; $('pickWrap').hidden = true; $('btnShot').disabled = false; }
-  else { $('btnStart').hidden = false; $('pickWrap').hidden = false; $('btnShot').disabled = true; $('stageMsg').hidden = false; }
-  $('mLoc').textContent = 'not captured';
-}
-$('btnRetake').onclick = () => { resetShot(); say(''); };
-
-$('btnSave').onclick = async () => {
-  if (!shotBlob) return;
-  const rec = {
-    id: 'snap_' + shotMeta.ts + '_' + Math.random().toString(36).slice(2, 7),
-    ts: shotMeta.ts, day: dayKey(shotMeta.ts),
-    lat: shotMeta.lat ?? null, lon: shotMeta.lon ?? null, acc: shotMeta.acc ?? null,
-    place: shotMeta.place || '', note: '', blob: shotBlob, type: 'image/jpeg'
-  };
+async function save(blob, ts) {
+  const rec = { id:'s'+ts+Math.random().toString(36).slice(2,6), ts, day:dayKey(ts),
+    lat:lastPos?.lat ?? null, lon:lastPos?.lon ?? null, acc:lastPos?.acc ?? null,
+    place:'', blob, type:'image/jpeg' };
   await dbPut(rec);
-  await refresh();
-  resetShot();
-  say('Saved ✓  (' + snaps.length + ' total)', 'ok');
-};
-
-/* ---------------- stats + gallery ---------------- */
-function streakOf(list) {
-  const days = new Set(list.map(s => s.day));
-  let n = 0, d = new Date();
-  if (!days.has(dayKey(d))) d.setDate(d.getDate() - 1); // grace: today not shot yet
-  while (days.has(dayKey(d))) { n++; d.setDate(d.getDate() - 1); }
-  return n;
+  await load();                       // thumbnail updates immediately
+  if (rec.lat != null) {              // resolve the place name afterwards, quietly
+    const n = await placeName(rec.lat, rec.lon);
+    if (n) { rec.place = n; await dbPut(rec); await load(); }
+  }
 }
 
-async function refresh() {
-  snaps = (await dbAll()).sort((a, b) => b.ts - a.ts);
-  $('statTotal').textContent = snaps.length;
-  $('statStreak').textContent = streakOf(snaps);
-  const today = snaps.filter(s => s.day === dayKey(Date.now())).length;
-  $('statToday').textContent = today ? '✓ ' + today : '—';
-  $('countBadge').textContent = snaps.length;
-  render();
-}
-
-function render() {
-  const q = $('search').value.trim().toLowerCase();
-  const list = snaps.filter(s => !q ||
-    (s.place + ' ' + s.note + ' ' + fmtDate(s.ts) + ' ' + s.day).toLowerCase().includes(q));
-  $('empty').style.display = list.length ? 'none' : 'block';
+/* ---------------- gallery ---------------- */
+async function load() {
+  snaps = (await dbAll()).sort((a,b) => b.ts - a.ts);
+  $('gcount').textContent = snaps.length ? snaps.length + (snaps.length === 1 ? ' snap' : ' snaps') : '';
+  const t = $('toGallery');
+  if (snaps[0]) { t.style.backgroundImage = `url(${urlFor(snaps[0])})`; t.classList.remove('pop'); void t.offsetWidth; t.classList.add('pop'); }
+  else t.style.backgroundImage = '';
+  $('empty').hidden = snaps.length > 0;
   $('grid').innerHTML = '';
-  list.forEach(s => {
-    const el = document.createElement('div');
-    el.className = 'card';
-    el.innerHTML = `<img loading="lazy" src="${urlFor(s)}" alt="">
-      <div class="c-meta"><div class="c-date">${fmtDate(s.ts)}</div>
-      <div class="c-loc">${fmtTime(s.ts)} · ${s.place || (s.lat ? s.lat + ', ' + s.lon : 'no location')}</div></div>`;
-    el.onclick = () => openLB(s);
-    $('grid').appendChild(el);
-  });
+  snaps.forEach(s => { const i = new Image();
+    i.src = urlFor(s); i.loading = 'lazy'; i.onclick = () => openViewer(s); $('grid').appendChild(i); });
 }
-$('search').oninput = render;
 
-/* ---------------- lightbox ---------------- */
+const show = id => document.querySelectorAll('.screen').forEach(s =>
+  s.id === 'viewer' ? 0 : s.classList.toggle('on', s.id === id));
+$('toGallery').onclick = () => show('gal');
+$('toCam').onclick = () => show('cam');
+
+/* ---------------- viewer ---------------- */
 let cur = null;
-function openLB(s) {
-  cur = s;
-  const u = urlFor(s);
-  $('lbImg').src = u;
-  $('lbDate').textContent = fmtDate(s.ts);
-  $('lbTime').textContent = fmtTime(s.ts) + '  ·  ' + new Date(s.ts).toISOString();
-  $('lbLoc').textContent = s.place ? `${s.place} (${s.lat}, ${s.lon})` : (s.lat ? `${s.lat}, ${s.lon} ±${s.acc}m` : 'No location recorded');
-  $('lbLink').href = u; $('lbLink').textContent = u.slice(0, 48) + '…';
-  $('lbDl').href = u; $('lbDl').download = `snapz-${s.day}-${new Date(s.ts).toTimeString().slice(0,8).replace(/:/g,'')}.jpg`;
-  $('lbMap').href = s.lat ? `https://www.openstreetmap.org/?mlat=${s.lat}&mlon=${s.lon}#map=17/${s.lat}/${s.lon}` : '#';
-  $('lbMap').style.display = s.lat ? '' : 'none';
-  $('lbNote').value = s.note || '';
-  $('lightbox').hidden = false;
+function openViewer(s) {
+  cur = s; const u = urlFor(s);
+  $('vImg').src = u;
+  $('vDate').textContent = fmtDate(s.ts);
+  $('vTime').textContent = fmtTime(s.ts);
+  $('vPlace').textContent = s.place || (s.lat != null ? `${s.lat}, ${s.lon}` : '');
+  $('vPlace').hidden = !s.place && s.lat == null;
+  $('vMap').hidden = s.lat == null;
+  if (s.lat != null) $('vMap').href = `https://www.openstreetmap.org/?mlat=${s.lat}&mlon=${s.lon}#map=17/${s.lat}/${s.lon}`;
+  $('vOpen').href = u;
+  $('vDl').href = u; $('vDl').download = `snapz-${s.day}-${new Date(s.ts).toTimeString().slice(0,5).replace(':','')}.jpg`;
+  $('viewer').hidden = false;
 }
-$('lbClose').onclick = () => { $('lightbox').hidden = true; cur = null; };
-$('lightbox').onclick = e => { if (e.target === $('lightbox')) $('lbClose').onclick(); };
-$('lbNote').oninput = async () => { if (cur) { cur.note = $('lbNote').value; await dbPut(cur); } };
-$('lbCopy').onclick = async () => {
-  try { await navigator.clipboard.writeText($('lbLink').href); $('lbCopy').textContent = 'Copied!';
-    setTimeout(() => $('lbCopy').textContent = 'Copy link', 1400); } catch {}
+$('vClose').onclick = () => { $('viewer').hidden = true; cur = null; };
+$('vDel').onclick = async () => {
+  if (!cur || !confirm('Delete this snap?')) return;
+  await dbDel(cur.id); urls.delete(cur.id); $('viewer').hidden = true; cur = null; await load();
 };
-$('lbDel').onclick = async () => {
-  if (!cur || !confirm('Delete this snap permanently?')) return;
-  await dbDel(cur.id); urls.delete(cur.id);
-  $('lightbox').hidden = true; cur = null; await refresh();
-};
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { if (!$('viewer').hidden) $('vClose').onclick(); else show('cam'); }
+});
 
-/* ---------------- export / wipe ---------------- */
-$('btnExport').onclick = async () => {
+/* ---------------- export (the "look back" archive) ---------------- */
+$('menu').onclick = async () => {
+  if (!snaps.length) return;
   const rows = await Promise.all(snaps.map(async s => ({
-    id: s.id, date: fmtDate(s.ts), time: fmtTime(s.ts), iso: new Date(s.ts).toISOString(),
-    lat: s.lat, lon: s.lon, accuracy_m: s.acc, place: s.place, note: s.note,
-    map: s.lat ? `https://www.openstreetmap.org/?mlat=${s.lat}&mlon=${s.lon}` : null,
-    image: await new Promise(r => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(s.blob); })
+    date: fmtDate(s.ts), time: fmtTime(s.ts), iso: new Date(s.ts).toISOString(),
+    lat: s.lat, lon: s.lon, accuracy_m: s.acc, place: s.place,
+    map: s.lat != null ? `https://www.openstreetmap.org/?mlat=${s.lat}&mlon=${s.lon}` : null,
+    image: await new Promise(r => { const f = new FileReader(); f.onload = () => r(f.result); f.readAsDataURL(s.blob); })
   })));
-  const b = new Blob([JSON.stringify({ app: 'SnapZ', exported: new Date().toISOString(), snaps: rows }, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(b); a.download = `snapz-export-${dayKey(Date.now())}.json`; a.click();
-};
-$('btnWipe').onclick = async () => {
-  if (!confirm('Delete ALL snaps? This cannot be undone.')) return;
-  await dbClear(); urls.clear(); await refresh();
+  a.href = URL.createObjectURL(new Blob([JSON.stringify({ app:'SnapZ', exported:new Date().toISOString(), snaps:rows }, null, 2)], { type:'application/json' }));
+  a.download = `snapz-${dayKey(Date.now())}.json`; a.click();
 };
 
-/* go */
-refresh();
-$('mTime').textContent = fmtTime(Date.now());
-
-if (inFrame && !sessionStorage.getItem('warnOff')) {
-  $('sandboxWarn').hidden = false;
-  $('openTab').href = location.href;
-}
-$('warnX').onclick = () => { $('sandboxWarn').hidden = true; sessionStorage.setItem('warnOff', '1'); };
-document.addEventListener('keydown', e => { if (e.key === 'Escape') $('lbClose').onclick(); });
-// auto-start the camera as soon as the page loads
+/* ---------------- go ---------------- */
+load();
 startCam();
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && !stream && !shotBlob) startCam();
+  if (document.visibilityState === 'visible' && !stream) startCam();
 });
-window.addEventListener('pagehide', stopCam);
+window.addEventListener('pagehide', () => stream && stream.getTracks().forEach(t => t.stop()));

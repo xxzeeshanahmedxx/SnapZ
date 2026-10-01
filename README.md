@@ -1,34 +1,26 @@
 # 📸 SnapZ
 
-A tiny personal web app: take a selfie every day, and it records the **time**, the **location**, and a **link to the image** — plus a gallery of everything you've shot.
+A pure camera. Open it, tap the white shutter, done — one selfie a day.
 
-**Live:** https://xxzeeshanahmedxx.github.io/SnapZ/ *(enable GitHub Pages → Settings → Pages → Branch `main` / root)*
+No stats, no forms, no "save" step, nothing on screen but the viewfinder. Behind the glass every snap quietly records **when** and **where** it was taken, so years from now you can look back and see how you looked, what day it was, and where you were standing.
 
-## Features
-- 📷 Live camera (front/back flip, mirrored selfie preview)
-- 🕒 Automatic timestamp on every snap
-- 📍 GPS coordinates + reverse-geocoded place name (OpenStreetMap Nominatim) + map link
-- 🔗 Direct image link per snap — open, copy, or download
-- 🖼️ Gallery grid with search, lightbox view and per-day notes
-- 🔥 Total snaps + daily streak counter
-- 💾 Export everything to JSON (images embedded as base64)
-- 🔒 100% local — images live in your browser's IndexedDB, nothing is uploaded anywhere
+**Live:** https://xxzeeshanahmedxx.github.io/SnapZ/
 
-## Run locally
+## The whole app
+- **Camera** — fullscreen viewfinder. A white shutter button, a gallery thumbnail bottom-left, a flip button bottom-right. That's it.
+- **Tap = saved.** No review screen, no confirmation. Flash + haptic tick and it's in the gallery.
+- **Silent metadata** — GPS is kept warm in the background and written to each snap. Never displayed while shooting.
+- **Gallery** — a plain 3-column grid of your face over time.
+- **Tap a photo** to reveal what was hidden: the full date, the time, the place name, a map link, and the image link.
+- **Export** (↓ icon in the gallery) — the full archive as JSON: dates, times, coordinates, place names and the images themselves.
+
+## Privacy
+Everything lives in your browser's IndexedDB, on your device. Nothing is uploaded. The only network call is an anonymous OpenStreetMap lookup to turn coordinates into a place name.
+
+## Run it
 ```bash
-python3 -m http.server 8000
-# open http://localhost:8000
+python3 -m http.server 8000   # then open http://localhost:8000
 ```
-Camera APIs require a **secure context**: `localhost` or HTTPS (GitHub Pages works).
+The camera requires a secure context — `localhost` or HTTPS (GitHub Pages is fine). It will not work inside a sandboxed preview frame.
 
-## Files
-| File | Purpose |
-|---|---|
-| `index.html` | Markup / layout |
-| `styles.css` | Dark UI theme |
-| `app.js` | Camera, geolocation, IndexedDB storage, gallery |
-
-## Notes & possible next steps
-- Storage is per-browser/per-device. Use **Export JSON** to back up.
-- Image links are `blob:` URLs — valid in the current tab session. For permanent shareable URLs you'd need a backend (e.g. Supabase Storage, Cloudinary, or an S3 bucket).
-- Ideas: PWA install + offline, calendar heatmap view, auto daily reminder, timelapse video from all snaps.
+Tip: on your phone, use **Add to Home Screen** — it opens fullscreen like a native camera.

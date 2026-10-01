@@ -2,100 +2,78 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0b0d12">
-<title>SnapZ — daily selfie journal</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>SnapZ</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📸</text></svg>">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 
-<header class="topbar">
-  <div class="brand"><span class="dot"></span> SnapZ</div>
-  <nav class="tabs">
-    <button class="tab active" data-view="camera">Camera</button>
-    <button class="tab" data-view="gallery">Gallery <span id="countBadge" class="badge">0</span></button>
-  </nav>
-</header>
+<!-- ================= CAMERA ================= -->
+<section id="cam" class="screen on">
+  <video id="video" autoplay playsinline muted></video>
+  <div id="flash" class="flash"></div>
 
-<main>
-  <!-- ============ CAMERA ============ -->
-  <section id="view-camera" class="view active">
-    <div id="sandboxWarn" class="warn" hidden>
-      <button id="warnX" class="warn-x" title="Dismiss">&times;</button>
-      <b>⚠️ The camera can't run inside this preview pane.</b>
-      <span>Browsers block camera access in sandboxed frames. Open the app in a real tab:</span>
-      <a id="openTab" class="btn primary sm" href="./" target="_blank" rel="noopener">Open SnapZ in a new tab ↗</a>
-    </div>
+  <div id="fallback" class="fallback" hidden>
+    <p id="fbMsg"></p>
+    <button id="fbRetry" class="pill">Enable camera</button>
+    <label class="pill ghost">Use device camera<input id="pick" type="file" accept="image/*" capture="user" hidden></label>
+    <a id="fbTab" class="pill ghost" target="_blank" rel="noopener" hidden>Open in a new tab ↗</a>
+  </div>
 
-    <div class="streak-row">
-      <div class="stat"><b id="statTotal">0</b><span>snaps</span></div>
-      <div class="stat"><b id="statStreak">0</b><span>day streak</span></div>
-      <div class="stat"><b id="statToday">—</b><span>today</span></div>
-    </div>
+  <div class="bar">
+    <button id="toGallery" class="thumb" aria-label="Gallery"></button>
+    <button id="shutter" class="shutter" aria-label="Capture"></button>
+    <button id="flip" class="flip" aria-label="Flip camera">
+      <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 8V6a2 2 0 0 1 2-2h3l1.5-2h5L16 4h3a2 2 0 0 1 2 2v2"/>
+        <path d="M21 12v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-6"/>
+        <path d="M8 13l-2 2 2 2M16 17l2-2-2-2M6 15h12"/>
+      </svg>
+    </button>
+  </div>
+</section>
 
-    <div class="stage">
-      <video id="video" autoplay playsinline muted></video>
-      <canvas id="canvas" hidden></canvas>
-      <img id="preview" alt="preview" hidden>
-      <div id="flash" class="flash"></div>
-      <div id="stageMsg" class="stage-msg">Starting camera…</div>
-    </div>
+<!-- ================= GALLERY ================= -->
+<section id="gal" class="screen">
+  <header class="ghead">
+    <button id="toCam" class="icobtn" aria-label="Back to camera">
+      <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+    </button>
+    <span id="gcount">0</span>
+    <button id="menu" class="icobtn" aria-label="Export">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+    </button>
+  </header>
+  <div id="grid" class="grid"></div>
+  <p id="empty" class="empty">No snaps yet</p>
+</section>
 
-    <div id="metaLive" class="meta-live">
-      <div><span class="k">Time</span><span class="v" id="mTime">—</span></div>
-      <div><span class="k">Location</span><span class="v" id="mLoc">not captured</span></div>
-    </div>
-
-    <div class="controls">
-      <button id="btnStart" class="btn ghost" hidden>Enable camera</button>
-      <button id="btnFlip" class="btn ghost" disabled>Flip</button>
-      <button id="btnShot" class="btn shoot" disabled>Capture</button>
-      <button id="btnSave" class="btn primary" hidden>Save snap</button>
-      <button id="btnRetake" class="btn ghost" hidden>Retake</button>
-      <label id="pickWrap" class="btn ghost" hidden>Use phone camera
-        <input id="pick" type="file" accept="image/*" capture="user" hidden>
-      </label>
-    </div>
-
-    <label class="geo-toggle">
-      <input type="checkbox" id="geoOn" checked> Attach GPS location
-    </label>
-    <p id="status" class="status"></p>
-  </section>
-
-  <!-- ============ GALLERY ============ -->
-  <section id="view-gallery" class="view">
-    <div class="gallery-bar">
-      <input id="search" type="search" placeholder="Search date, place or note…">
-      <button id="btnExport" class="btn ghost sm">Export JSON</button>
-      <button id="btnWipe" class="btn danger sm">Clear all</button>
-    </div>
-    <div id="grid" class="grid"></div>
-    <p id="empty" class="empty">No snaps yet. Go take your first one 👋</p>
-  </section>
-</main>
-
-<!-- ============ LIGHTBOX ============ -->
-<div id="lightbox" class="lightbox" hidden>
-  <div class="lb-inner">
-    <img id="lbImg" alt="">
-    <div class="lb-meta">
-      <h3 id="lbDate"></h3>
-      <p class="row"><span>🕒</span><span id="lbTime"></span></p>
-      <p class="row"><span>📍</span><span id="lbLoc"></span></p>
-      <p class="row"><span>🔗</span><a id="lbLink" href="#" target="_blank" rel="noopener">open image in new tab</a></p>
-      <p class="row"><span>🗺️</span><a id="lbMap" href="#" target="_blank" rel="noopener">view on map</a></p>
-      <textarea id="lbNote" placeholder="Add a note about this day…"></textarea>
-      <div class="lb-actions">
-        <button id="lbCopy" class="btn ghost sm">Copy link</button>
-        <a id="lbDl" class="btn ghost sm" download>Download</a>
-        <button id="lbDel" class="btn danger sm">Delete</button>
-        <button id="lbClose" class="btn sm">Close</button>
-      </div>
+<!-- ================= VIEWER ================= -->
+<section id="viewer" class="screen viewer" hidden>
+  <img id="vImg" alt="">
+  <div class="vtop">
+    <button id="vClose" class="icobtn" aria-label="Close">
+      <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+    </button>
+    <button id="vDel" class="icobtn" aria-label="Delete">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>
+    </button>
+  </div>
+  <div class="vmeta">
+    <h2 id="vDate"></h2>
+    <p id="vTime"></p>
+    <p id="vPlace"></p>
+    <div class="vlinks">
+      <a id="vMap" target="_blank" rel="noopener">Map</a>
+      <a id="vOpen" target="_blank" rel="noopener">Open image</a>
+      <a id="vDl" download>Download</a>
     </div>
   </div>
-</div>
+</section>
 
 <script src="app.js"></script>
 </body>
