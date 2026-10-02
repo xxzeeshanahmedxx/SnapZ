@@ -4,8 +4,7 @@
 import * as cloud from './api.js';
 import { $, inFrame, SNAP, still, dayKey, registerSW, win, windowLabel } from './shared.js';
 
-const BURST = 3;
-let stream = null, track = null, imgCap = null, facing = 'user', busy = false, ready = false;
+let stream = null, track = null, facing = 'user', busy = false, ready = false;
 
 /* ---------- background image processor ---------- */
 let worker = null, jobId = 0;
@@ -45,7 +44,7 @@ function fallback(msg, retry = true) {
 
 async function startCam() {
   stream?.getTracks().forEach(t => t.stop());
-  stream = track = imgCap = null;
+  stream = track = null;
   if (!window.isSecureContext) return fallback('Camera needs HTTPS.', false);
   if (!navigator.mediaDevices?.getUserMedia)
     return fallback(inFrame ? 'Camera is blocked in this preview frame.' : 'Camera not supported.', false);
@@ -67,8 +66,6 @@ async function startCam() {
       if (ar && after.width && Math.abs(after.width / after.height - ar) / ar > 0.02)
         await track.applyConstraints({ aspectRatio: ar });
     } catch {}
-    if (window.ImageCapture) { try { imgCap = new ImageCapture(track); } catch {} }
-
     const v = $('video');
     v.srcObject = stream; await v.play().catch(() => {});
     v.style.transform = facing === 'user' ? 'scaleX(-1)' : 'none';
@@ -121,24 +118,6 @@ function toCanvas(src, w, h, mirror) {
   return cv;
 }
 
-async function burst(mirror) {
-  const v = $('video'), w = v.videoWidth, h = v.videoHeight;
-  const tmp = document.createElement('canvas');
-  tmp.width = w; tmp.height = h;
-  const g = tmp.getContext('2d', { willReadFrequently: true });
-  const frames = [];
-  for (let i = 0; i < BURST; i++) {
-    g.drawImage(v, 0, 0, w, h);
-    frames.push(g.getImageData(0, 0, w, h));
-    if (i < BURST - 1) await new Promise(r => setTimeout(r, 55));
-  }
-  const { averageFrames } = await import('./enhance.js');
-  const flat = document.createElement('canvas');
-  flat.width = w; flat.height = h;
-  flat.getContext('2d').putImageData(averageFrames(frames, w, h), 0, 0);
-  return toCanvas(flat, w, h, mirror);
-}
-
 /* the signature motion: the frame you just took flies into the thumbnail */
 function fly(dataUrl) {
   if (still.matches || !ready) return;
@@ -169,20 +148,17 @@ async function capture() {
   navigator.vibrate?.(14);
 
   try {
+    const v = $('video');
     const mirror = facing === 'user';
-    let cv = null;
-    if (imgCap) {
-      try {
-        const caps = await imgCap.getPhotoCapabilities().catch(() => null);
-        const st = track.getSettings?.() || {};
-        const ar = st.width && st.height ? st.width / st.height : null;
-        const shot = await imgCap.takePhoto(caps?.imageWidth?.max ? { imageWidth: caps.imageWidth.max } : {});
-        const bmp = await createImageBitmap(shot);
-        if (ar && Math.abs(bmp.width / bmp.height - ar) / ar > 0.06) { bmp.close?.(); }
-        else { cv = toCanvas(bmp, bmp.width, bmp.height, mirror); bmp.close?.(); }
-      } catch {}
-    }
-    if (!cv) cv = await burst(mirror);
+
+    /* ONE frame, copied straight off the live video. drawImage is a GPU blit:
+       it costs well under a frame. No burst, no takePhoto() — both forced the
+       phone into a refocus/re-expose cycle that cost seconds. */
+    const cv = toCanvas(v, v.videoWidth, v.videoHeight, mirror);
+    const ts = Date.now();                       // stamped at the moment of capture
+
+    /* the camera is usable again right here — everything below is background */
+    busy = false; $('shutter').disabled = false;
 
     /* instant micro-preview — the thumbnail fills before the encode finishes */
     const micro = document.createElement('canvas');
@@ -197,16 +173,20 @@ async function capture() {
     }, 420);
 
     ring('saving');
-    const ts = Date.now();
     const res = await process(await createImageBitmap(cv));
     const blob = res?.blob || await new Promise(r => cv.toBlob(r, 'image/webp', 0.9));
     const rec = { day: dayKey(ts), ts, blob, thumb: res?.thumb || null,
                   lat: pos?.lat ?? null, lon: pos?.lon ?? null, acc: pos?.acc ?? null,
                   place: '', w: res?.w || cv.width, h: res?.h || cv.height };
 
-    busy = false; $('shutter').disabled = false;       // camera is free again
-
-    if (rec.lat != null) rec.place = await placeName(rec.lat, rec.lon);
+    /* coordinates are already recorded; the human-readable place name is a
+       nicety from a third-party server, so it never delays the upload */
+    if (rec.lat != null) {
+      rec.place = await Promise.race([
+        placeName(rec.lat, rec.lon),
+        new Promise(r => setTimeout(() => r(''), 1200))
+      ]);
+    }
     await send(rec);
   } finally { busy = false; $('shutter').disabled = false; }
 }

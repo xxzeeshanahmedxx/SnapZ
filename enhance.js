@@ -4,43 +4,6 @@
 /* ---- multi-frame noise reduction ----
    Sensor noise is random; detail is not. Averaging N frames cancels the noise
    (~sqrt(N) less) while the face stays put — the trick behind phone night modes. */
-export function averageFrames(frames, w, h) {
-  const n = frames.length, len = w * h * 4;
-  const out = new Uint16Array(len);                      // 16-bit is plenty for <=8 frames
-  for (const f of frames) { const d = f.data; for (let i = 0; i < len; i++) out[i] += d[i]; }
-  const img = new ImageData(w, h);
-  const o = img.data;
-  for (let i = 0; i < len; i++) o[i] = out[i] / n;
-  return img;
-}
-
-/* ---- separable sliding-window box blur: O(pixels), independent of radius ---- */
-function boxBlur(src, dst, w, h, r) {
-  const tmp = new Float32Array(w * h);
-  const win = 2 * r + 1;
-  for (let y = 0; y < h; y++) {                          // horizontal
-    const row = y * w;
-    let sum = src[row] * r;
-    for (let x = 0; x <= r; x++) sum += src[row + Math.min(x, w - 1)];
-    for (let x = 0; x < w; x++) {
-      tmp[row + x] = sum / win;
-      sum += src[row + Math.min(x + r + 1, w - 1)] - src[row + Math.max(x - r, 0)];
-    }
-  }
-  for (let x = 0; x < w; x++) {                          // vertical
-    let sum = tmp[x] * r;
-    for (let y = 0; y <= r; y++) sum += tmp[Math.min(y, h - 1) * w + x];
-    for (let y = 0; y < h; y++) {
-      dst[y * w + x] = sum / win;
-      sum += tmp[Math.min(y + r + 1, h - 1) * w + x] - tmp[Math.max(y - r, 0) * w + x];
-    }
-  }
-}
-
-/* ---- the whole pipeline in two passes over the pixels ----
-   Pass 1 : gather stats (channel means + luma histogram) on a subsample
-   Pass 2 : apply white balance + auto levels via a lookup table, then
-            unsharp mask on luminance, then saturation — all in one loop. */
 export function enhance(imgData, w, h, opt = {}) {
   /* Defaults are tuned for FIDELITY, not flattery: no saturation boost,
      no skin smoothing, no heavy curves. Just noise and dullness. */
