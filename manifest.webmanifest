@@ -1,9 +1,9 @@
 {
   "name": "SnapZ",
   "short_name": "SnapZ",
-  "description": "One selfie a day, with the time and place remembered quietly.",
-  "start_url": "./",
-  "scope": "./",
+  "description": "A camera that quietly remembers when and where.",
+  "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#000000",

@@ -8,12 +8,11 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>SnapZ</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📸</text></svg>">
-<link rel="manifest" href="manifest.webmanifest">
-<link rel="apple-touch-icon" href="icons/icon-192.png">
-<link rel="stylesheet" href="styles.css">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icons/icon-192.png">
+<link rel="stylesheet" href="/styles.css">
 </head>
-<body>
-
+<body class="page">
 <!-- ================= CAMERA ================= -->
 <section id="cam" class="screen on">
   <video id="video" autoplay playsinline muted></video>
@@ -93,69 +92,6 @@
   <div id="grid" class="grid"></div>
   <p id="empty" class="empty" hidden>No snaps yet</p>
 </section>
-
-<!-- ================= LOCK WALL =================
-     Everything behind this renders normally. The wall is the restriction. -->
-<div id="wall" class="wall" hidden>
-  <div class="wall-in">
-    <svg class="wall-ico" viewBox="0 0 24 24" aria-hidden="true">
-      <rect x="4" y="10.5" width="16" height="10.5" rx="2.5"/>
-      <path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/>
-    </svg>
-    <h1>Locked</h1>
-    <p id="wallMsg">You chose 6:00 PM – 9:00 PM, every day.</p>
-    <p id="wallCount" class="wall-count"></p>
-    <div id="wallProof" class="wall-proof"></div>
-    <button id="wallBack" class="pill ghost wall-back">Back to camera</button>
-    <label class="sw">
-      <input id="wallTest" type="checkbox">
-      <span class="sw-track"><span class="sw-knob"></span></span>
-      <span class="sw-label">Testing · lift the lock</span>
-    </label>
-  </div>
-</div>
-
-<!-- shown while the lock is lifted for testing, so it is never forgotten -->
-<button id="testChip" class="test-chip" hidden>LOCK LIFTED · tap to restore</button>
-
-<!-- ================= VIEWER ================= -->
-<section id="viewer" class="screen viewer" hidden>
-  <div id="vStage" class="vstage"><img id="vImg" alt=""></div>
-  <div class="vtop">
-    <button id="vClose" class="icobtn" aria-label="Close">
-      <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
-    </button>
-    <span id="vPos" class="vpos"></span>
-    <button id="vDel" class="icobtn" aria-label="Delete">
-      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>
-    </button>
-  </div>
-  <div class="vmeta">
-    <div id="vFade">
-      <h2 id="vPlace"></h2>
-      <p id="vDate" class="vdate"></p>
-      <p id="vTime" class="vfine"></p>
-      <p id="vProof" class="vproof"></p>
-    </div>
-    <div class="vlinks">
-      <a id="vMap" target="_blank" rel="noopener">Map</a>
-      <a id="vOpen" target="_blank" rel="noopener">Open image</a>
-      <a id="vDl" download>Download</a>
-    </div>
-  </div>
-</section>
-
-<!-- ================= TIME-LAPSE ================= -->
-<section id="lapse" class="screen lapse" hidden>
-  <canvas id="lapseCv"></canvas>
-  <div id="lapseDate" class="lapse-date"></div>
-  <div class="lapse-bar">
-    <button id="lClose" class="pill ghost">Close</button>
-    <input id="lSpeed" type="range" min="2" max="16" value="6" aria-label="Speed">
-    <button id="lSave" class="pill">Save video</button>
-  </div>
-</section>
-
-<script type="module" src="app.js"></script>
+<script type="module" src="/camera.js"></script>
 </body>
 </html>

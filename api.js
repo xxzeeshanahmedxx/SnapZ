@@ -1,7 +1,7 @@
 /* Cloud client. The gallery is served entirely from D1 + R2 — this module is
    the only thing that talks to the network. */
 
-const TKEY = 'snapz_token', AKEY = 'snapz_api', OUTBOX = 'snapz_outbox';
+const TKEY = 'snapz_token', AKEY = 'snapz_api', OUTBOX = 'outbox';
 const DEFAULT_API = 'https://snapz-api.xxzeeshanahmedxx.workers.dev';
 
 export const apiBase  = () => (localStorage.getItem(AKEY) || DEFAULT_API).replace(/\/$/, '');
@@ -92,9 +92,13 @@ export async function remove(day) {
 
 /* ---------- outbox: survives being offline ----------
    Only failed uploads are kept locally, and only until they land. The gallery
-   never reads from here. */
-const idb = indexedDB.open('snapz-outbox', 1);
-idb.onupgradeneeded = () => idb.result.createObjectStore(OUTBOX, { keyPath: 'day' });
+   never reads from here. Keyed per snap, not per day — several a day is normal. */
+const idb = indexedDB.open('snapz-outbox', 2);
+idb.onupgradeneeded = e => {
+  const db = idb.result;
+  if (db.objectStoreNames.contains('snapz_outbox')) db.deleteObjectStore('snapz_outbox');
+  if (!db.objectStoreNames.contains(OUTBOX)) db.createObjectStore(OUTBOX, { keyPath: 'qid' });
+};
 const db = new Promise(res => { idb.onsuccess = () => res(idb.result); });
 const tx = async (mode, fn) => {
   const d = await db;
@@ -103,15 +107,16 @@ const tx = async (mode, fn) => {
     t.oncomplete = () => res(out?.result ?? out); t.onerror = () => rej(t.error);
   });
 };
-export const queue    = rec => tx('readwrite', s => s.put(rec));
-export const unqueue  = day => tx('readwrite', s => s.delete(day));
+export const queue    = rec => tx('readwrite',
+  s => s.put(rec.qid ? rec : Object.assign(rec, { qid: `${rec.day}-${rec.ts}-${Math.random().toString(36).slice(2,7)}` })));
+export const unqueue  = qid => tx('readwrite', s => s.delete(qid));
 export const pending  = () => tx('readonly', s => s.getAll());
 
 export async function flush(onProgress) {
   if (!navigator.onLine || !getToken()) return 0;
   let sent = 0;
   for (const rec of await pending()) {
-    try { await upload(rec, onProgress); await unqueue(rec.day); sent++; }
+    try { await upload(rec, onProgress); await unqueue(rec.qid); sent++; }
     catch (e) {
       /* Record the failure instead of hiding it — the UI shows the count. */
       rec.tries = (rec.tries || 0) + 1;

@@ -2,24 +2,32 @@
    Photos come from R2 and are cached on first view; only failed uploads are
    held locally, in the outbox. */
 
-const VERSION = 'snapz-v11';
+const VERSION = 'snapz-v12';
 const SHELL = [
-  './',
-  './index.html',
-  './styles.css',
-  './app.js',
-  './enhance.js',
-  './worker.js',
-  './api.js',
-  './manifest.webmanifest',
-  './icons/icon-192.png',
-  './icons/icon-512.png'
+  '/',
+  '/index.html',
+  '/lock',
+  '/lock.html',
+  '/gallery',
+  '/gallery.html',
+  '/styles.css',
+  '/shared.js',
+  '/api.js',
+  '/camera.js',
+  '/gallery.js',
+  '/login.js',
+  '/enhance.js',
+  '/worker.js',
+  '/manifest.webmanifest',
+  '/icons/icon-192.png',
+  '/icons/icon-512.png'
 ];
 
 self.addEventListener('install', e => {
+  /* One missing entry must not fail the whole install — addAll is all-or-nothing. */
   e.waitUntil(
     caches.open(VERSION)
-      .then(c => c.addAll(SHELL))
+      .then(c => Promise.allSettled(SHELL.map(u => c.add(u))))
       .then(() => self.skipWaiting())
   );
 });
@@ -50,6 +58,21 @@ self.addEventListener('fetch', e => {
         const res = await fetch(req);
         if (res.ok) c.put(req, res.clone());
         return res;
+      })
+    );
+    return;
+  }
+
+  /* Navigations: offline, fall back to the matching page shell. */
+  if (req.mode === 'navigate') {
+    e.respondWith(
+      fetch(req).catch(async () => {
+        const c = await caches.open(VERSION);
+        const p = url.pathname;
+        return (await c.match(p)) ||
+               (await c.match(p.replace(/\/$/, '') + '.html')) ||
+               (await c.match('/')) ||
+               Response.error();
       })
     );
     return;

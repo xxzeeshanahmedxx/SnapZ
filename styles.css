@@ -158,6 +158,10 @@ a{color:var(--text)}
 .cell .dnum{position:absolute;left:6px;bottom:5px;font-size:11px;font-weight:600;color:#fff;
   text-shadow:0 1px 4px rgba(0,0,0,.8);opacity:0;transition:opacity .35s var(--fade);pointer-events:none}
 .grid.rest .cell .dnum{opacity:.85}
+.cell.today{box-shadow:inset 0 0 0 3px #22ff7a, 0 0 14px rgba(34,255,122,.55);z-index:1}
+.cell.today:after{content:'';position:absolute;inset:0;pointer-events:none;
+  box-shadow:inset 0 0 0 3px #22ff7a;animation:todayGlow 2.4s ease-in-out infinite}
+@keyframes todayGlow{0%,100%{opacity:1}50%{opacity:.55}}
 .cell.ghost{opacity:0}        /* hidden while its shared-element zoom plays */
 .empty{text-align:center;color:#56545a;padding:90px 20px;font-size:14px;
   animation:rise .5s var(--snap) both}
@@ -252,16 +256,17 @@ a{color:var(--text)}
    fixed, opaque enough to be a wall, blurred enough that detail does not read. */
 .wall{position:fixed;inset:0;z-index:200;display:flex;align-items:center;justify-content:center;
   padding:28px;text-align:center;
-  background:rgba(10,10,11,.72);
-  -webkit-backdrop-filter:blur(26px) saturate(.55) brightness(.75);
-  backdrop-filter:blur(26px) saturate(.55) brightness(.75);
+  background:rgba(10,10,11,.34);
+  -webkit-backdrop-filter:blur(13px) saturate(.8) brightness(.9);
+  backdrop-filter:blur(13px) saturate(.8) brightness(.9);
   animation:wallIn .45s var(--snap) both}
 .wall[hidden]{display:none !important}
 @keyframes wallIn{from{opacity:0;backdrop-filter:blur(0)}to{opacity:1}}
 .wall-in{max-width:300px;animation:rise .5s .06s var(--spring) both}
-.wall-ico{width:46px;height:46px;margin-bottom:16px;fill:none;stroke:var(--dim);stroke-width:1.7;
+.wall-ico{width:46px;height:46px;margin-bottom:14px;filter:drop-shadow(0 2px 10px rgba(0,0,0,.6));fill:none;stroke:#e6e4e1;stroke-width:1.7;
   stroke-linecap:round;stroke-linejoin:round}
-.wall-in h1{margin:0 0 7px;font-size:23px;font-weight:650;letter-spacing:-.025em}
+.wall-in h1{margin:0;font-size:23px;font-weight:650;letter-spacing:-.025em;
+  text-shadow:0 2px 18px rgba(0,0,0,.75)}
 .wall-in p{margin:0;font-size:14px;color:var(--dim)}
 .wall-count{margin-top:6px !important;font-size:13px;color:var(--faint) !important;
   font-variant-numeric:tabular-nums}

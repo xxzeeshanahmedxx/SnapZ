@@ -1,7 +1,8 @@
--- SnapZ · D1. One row per DAY; the day is the primary key, so re-shooting
--- replaces instead of duplicating. R2 holds the bytes.
+-- SnapZ · D1. One row per SNAP. Any number per day; `day` is only a label
+-- used for grouping in the gallery. R2 holds the bytes.
 CREATE TABLE IF NOT EXISTS snaps (
-  day        TEXT PRIMARY KEY,   -- 'YYYY-MM-DD' local date at capture
+  id         TEXT PRIMARY KEY,   -- '<day>-<ts>-<rand>'
+  day        TEXT NOT NULL,      -- 'YYYY-MM-DD' local date at capture
   ts         INTEGER NOT NULL,   -- epoch ms
   time       TEXT    NOT NULL,   -- 'HH:MM:SS' local
   tz         TEXT,
@@ -21,6 +22,7 @@ CREATE TABLE IF NOT EXISTS snaps (
   updated_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_snaps_ts ON snaps(ts DESC);
+CREATE INDEX IF NOT EXISTS idx_snaps_day ON snaps(day);
 
 -- Salted hash of your passcode. The passcode itself is never stored.
 CREATE TABLE IF NOT EXISTS config (

@@ -1,33 +1,25 @@
 # SnapZ — what is connected to what
 
-A daily selfie camera. One photo per day, stored in the cloud, with the time and
-place recorded silently and shown only in the gallery viewer.
+A camera that quietly remembers when and where. Take as many snaps a day as you
+like; they are stored in the cloud and viewable only inside a window you choose.
 
-```
-  PHONE                                CLOUDFLARE
-  ─────                                ──────────
-  index.html   markup, every screen
-      │
-      ├─ styles.css
-      │
-      ├─ app.js ──────── camera, gallery, viewer, time-lapse, day gate
-      │     │
-      │     ├─ worker.js ──── background thread: burst average, denoise,
-      │     │     └ enhance.js   white balance, levels, WebP encode + thumbnail
-      │     │
-      │     └─ api.js ─────── the ONLY code that touches the network
-      │            │                     │
-      │            │  POST /api/snap ────┼──▶ Worker (api/src/index.js)
-      │            │  GET  /api/snaps ───┤        │
-      │            │  DELETE /api/snap/… ┤        ├──▶ R2  snapz-photos   (bytes)
-      │            │                     │        └──▶ D1  snapz          (metadata)
-      │            └─ outbox (IndexedDB) — failed uploads only
-      │
-      └─ sw.js ──── caches the app shell so the camera opens offline
-```
+## 0. Three pages
+
+It is a multi-page app. Each page loads only the code it needs.
+
+| URL | File | Script | What it is |
+|---|---|---|---|
+| `/lock` | `lock.html` | `login.js` | the passcode screen |
+| `/` | `index.html` | `camera.js` | the camera, nothing else |
+| `/gallery` | `gallery.html` | `gallery.js` | grid, viewer, time-lapse, the wall |
+
+`shared.js` holds what all three need (the viewing window, date formatting,
+service-worker registration); `api.js` is the only module that touches the
+network. Visiting `/` or `/gallery` without a token redirects to
+`/lock?next=…`, and `/lock` bounces straight back once you are signed in.
 
 ## 1. Capture
-`app.js` holds the camera open with `getUserMedia`. Tapping the shutter grabs a
+`camera.js` holds the camera open with `getUserMedia`. Tapping the shutter grabs a
 burst of 3 frames, hands them to `worker.js` on a background thread so the UI
 never freezes, and gets back two blobs: the **full image** (WebP q0.90, same
 pixel dimensions as the sensor — never downscaled) and a **~400 px thumbnail**.
@@ -37,8 +29,9 @@ upload happen afterwards, so there is no waiting.
 
 ## 2. Upload
 `api.js` posts both blobs in one multipart request. The Worker writes them to R2
-**in parallel** and upserts one row in D1 keyed by the local date — re-shooting
-on the same day replaces that day instead of adding a second entry.
+**in parallel** and inserts **one D1 row per snap**, with its own id
+(`<day>-<ts>-<rand>`). There is no limit per day; `day` is only a grouping
+label used by the gallery.
 
 If the request fails, the record goes to the **outbox** (IndexedDB) and is
 retried on the next launch or when the device comes back online. The outbox is
@@ -58,28 +51,27 @@ cache header, so each photo downloads once per device.
 ## 4. The lock wall
 
 Photos are viewable inside **one window each day — 18:00 to 21:00** by default.
-Outside it the gallery still renders **completely normally** (every photo, the
-month headers, the ledger); the restriction is a single fixed sheet on top:
-translucent, heavily blurred, saying **Locked**, with a live countdown to the
-next opening and a confirmation of today's upload. It swallows every tap.
+Outside it `/gallery` still renders **completely normally**; the restriction is
+a translucent, lightly blurred sheet over the top that says **Locked** and
+swallows every tap. No countdown, no clock, no status text — just the wall.
 
-It covers the gallery, the viewer and the time-lapse. It never covers the
-camera — **capture is never gated**.
+Because the veil is thin, one signal reads straight through it: **today's snaps
+carry a bright green border** that pulses gently. That is the credibility
+mechanism — you can confirm today's photo reached the cloud without being able
+to look at it.
 
 The window is checked every second, so it **shuts on you mid-session**: at
 21:00 the viewer and time-lapse close themselves and the wall drops. While the
-window is open and fewer than 30 minutes remain, an amber line in the gallery
-reads "Closes in 12 minutes · 9:00 PM", so the close is never an ambush.
+window is open and fewer than 30 minutes remain, an amber line reads "Closes in
+12 minutes · 9:00 PM".
 
-Set it from the long-press menu under `hours`, as `HH:MM-HH:MM`
-(`localStorage.snapz_hours`). Windows that cross midnight, like `22:00-02:00`,
-are handled.
+Set it from the long-press menu on the camera's thumbnail, under `hours`, as
+`HH:MM-HH:MM` (`localStorage.snapz_hours`). Windows crossing midnight work.
 
-**Testing switch.** The wall carries a toggle that lifts the lock, stored in
-`localStorage.snapz_testunlock`. While it is lifted a loud amber chip sits at
-the bottom of the screen — tap it to restore the lock. There is also a `test`
-entry in the long-press menu. Being client-side, this is an honesty mechanism,
-not a security boundary.
+**Testing switch.** The wall carries a toggle that lifts the lock
+(`localStorage.snapz_testunlock`). While lifted, a loud amber chip sits at the
+bottom of the screen — tap it to restore. Client-side, so it is an honesty
+mechanism, not a security boundary.
 
 ## 5. Passcode
 Your passcode protects the **API**, not the phone. It is PBKDF2-hashed in D1;
@@ -111,8 +103,9 @@ have to trust blindly.
 
 ## 7. Storage keys
 `snapz_api`, `snapz_token`, `snapz_index` (cached list for instant paint),
-`snapz_days`, `snapz_nocloud`, plus the `snapz-outbox` IndexedDB database.
+`snapz_hours`, `snapz_testunlock`, `snapz_nocloud`, plus the `snapz-outbox`
+IndexedDB database (keyed per queued snap).
 
 ## 8. Removed
 Face Mesh, the stats dashboard, the PIN screen, WebAuthn/passkeys, the local
-photo store and the old `sync.js` two-way sync are all gone.
+photo store and the old `sync.js` two-way sync, and the one-snap-per-day rule are all gone.
