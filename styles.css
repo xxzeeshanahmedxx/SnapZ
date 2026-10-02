@@ -305,3 +305,53 @@ a{color:var(--text)}
   *,*:before,*:after{animation-duration:.01ms !important;animation-iteration-count:1 !important;
     transition-duration:.01ms !important}
 }
+
+/* ================= PAGINATION + TOAST ================= */
+.more{display:flex;align-items:center;justify-content:center;gap:10px;
+  padding:22px 0 46px;font-size:12.5px;color:var(--faint)}
+.spin{width:14px;height:14px;border-radius:50%;border:2px solid #2d2d33;border-top-color:var(--dim);
+  animation:spin .8s linear infinite}
+.toast{position:fixed;left:50%;transform:translateX(-50%);z-index:220;
+  bottom:calc(20px + env(safe-area-inset-bottom));
+  display:flex;align-items:center;gap:16px;padding:12px 16px;border-radius:14px;
+  background:#1f1f23;border:1px solid #303036;color:var(--text);font-size:13.5px;
+  box-shadow:0 12px 38px rgba(0,0,0,.55);animation:rise .36s var(--spring) both;max-width:92vw}
+.toast[hidden]{display:none !important}
+.toast button{color:var(--ok);font-weight:650;font-size:13.5px;white-space:nowrap}
+
+/* ================= SETTINGS SHEET ================= */
+.sheet-wrap{position:fixed;inset:0;z-index:300;display:flex;align-items:flex-end}
+.sheet-wrap[hidden]{display:none !important}
+.sheet-bg{position:absolute;inset:0;background:rgba(0,0,0,.55);
+  -webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);animation:fade .3s var(--fade) both}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+.sheet{position:relative;width:100%;max-height:88vh;overflow-y:auto;
+  background:var(--surface);border-radius:22px 22px 0 0;border-top:1px solid var(--line);
+  padding:10px 20px calc(22px + env(safe-area-inset-bottom));
+  animation:sheetUp .42s var(--spring) both}
+@keyframes sheetUp{from{transform:translateY(100%)}to{transform:none}}
+.grab{width:38px;height:4px;border-radius:999px;background:#38383f;margin:0 auto 14px}
+.sheet h2{margin:0 0 18px;font-size:19px;font-weight:650;letter-spacing:-.02em}
+.sheet .row{display:flex;align-items:center;justify-content:space-between;gap:14px;
+  padding:13px 0;border-top:1px solid var(--line)}
+.sheet .row.stack{flex-direction:column;align-items:stretch;gap:9px}
+.sheet .row label{font-size:14.5px}
+.rowsub{margin:-6px 0 0;font-size:11.5px;color:var(--faint)}
+.tag{display:inline-block;margin-left:7px;padding:2px 7px;border-radius:999px;font-size:9.5px;
+  font-weight:700;letter-spacing:.09em;text-transform:uppercase;background:var(--warn-bg);color:var(--warn)}
+.times{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--dim)}
+.times input{background:var(--surface-2);border:1px solid var(--line);color:var(--text);
+  border-radius:10px;padding:8px 10px;font:inherit;font-size:14.5px;
+  font-variant-numeric:tabular-nums;color-scheme:dark}
+.times input:focus{outline:none;border-color:#44434a}
+.sw.bare{margin:0;opacity:1}
+.sheet .pill.ghost{border-color:#33333a}
+.sheet .pill.danger{color:var(--bad);border-color:#43272b}
+.sheet-msg{margin:12px 0 0;font-size:12.5px;color:var(--dim);text-align:center}
+.sheet .pill.wide{margin-top:18px}
+.subform{display:flex;flex-direction:column;gap:8px;padding:4px 0 10px;
+  animation:rise .3s var(--snap) both}
+.subform[hidden]{display:none !important}
+.subform input{width:100%;padding:12px 14px;border-radius:11px;background:var(--surface-2);
+  border:1px solid var(--line);color:var(--text);font:inherit;font-size:15px}
+.subform input:focus{outline:none;border-color:#44434a}

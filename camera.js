@@ -2,8 +2,7 @@
    Capture is never gated by the viewing window. */
 
 import * as cloud from './api.js';
-import { $, inFrame, SNAP, still, dayKey, registerSW,
-         HKEY, DEFAULT_WINDOW, windowLabel, isOpen, TEST, lifted } from './shared.js';
+import { $, inFrame, SNAP, still, dayKey, registerSW, win, windowLabel } from './shared.js';
 
 const BURST = 3;
 let stream = null, track = null, imgCap = null, facing = 'user', busy = false, ready = false;
@@ -246,37 +245,98 @@ function paintThumb() {
 let press = null, held = false;
 $('toGallery').addEventListener('pointerdown', () => {
   held = false;
-  press = setTimeout(() => {
-    press = null; held = true;
-    navigator.vibrate?.(14);
-    menu();
-  }, 700);
+  press = setTimeout(() => { press = null; held = true; navigator.vibrate?.(14); openSheet(); }, 700);
 });
 ['pointerup','pointerleave','pointercancel'].forEach(ev =>
   $('toGallery').addEventListener(ev, () => { clearTimeout(press); press = null; }));
-$('toGallery').onclick = e => { if (held) { e.preventDefault(); held = false; return; }
-  location.href = '/gallery'; };
+$('toGallery').onclick = e => {
+  if (held) { e.preventDefault(); held = false; return; }
+  location.href = '/gallery';
+};
 
-function menu() {
+/* ---------- settings: a real sheet, no typed commands ---------- */
+const note = (msg, bad = false) => {
+  const el = $('sMsg');
+  el.textContent = msg; el.hidden = !msg;
+  el.style.color = bad ? 'var(--bad)' : 'var(--dim)';
+};
+
+async function openSheet() {
   if (!cloud.getToken()) { localStorage.removeItem('snapz_nocloud'); return location.href = '/lock'; }
-  const c = prompt('Type: hours · test · passcode · signout · api', '');
-  if (c === 'hours') {
-    const v = prompt('Viewing window, e.g. 18:00-21:00', localStorage.getItem(HKEY) || DEFAULT_WINDOW);
-    if (!v) return;
-    if (!/^\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}$/.test(v.trim()))
-      return alert('Use HH:MM-HH:MM, e.g. 18:00-21:00');
-    localStorage.setItem(HKEY, v.trim());
-    alert('Photos open ' + windowLabel() + ', every day.');
-  } else if (c === 'test') {
-    if (lifted()) localStorage.removeItem(TEST); else localStorage.setItem(TEST, '1');
-    alert(lifted() ? 'Lock lifted (testing).' : 'Lock restored.');
-  } else if (c === 'passcode') {
-    const cu = prompt('Current passcode'), nx = prompt('New passcode');
-    if (cu && nx) cloud.changePasscode(cu, nx).then(() => alert('Changed')).catch(e => alert(e.message));
-  } else if (c === 'signout') {
-    cloud.logout(); localStorage.removeItem('snapz_index'); location.href = '/lock';
-  } else if (c === 'api') { const u = prompt('API URL', cloud.apiBase()); if (u) cloud.setApi(u); }
+  const w = win();
+  $('sFrom').value = w.from; $('sTo').value = w.to; $('sLift').checked = !!w.lift;
+  note('');
+  $('aUrl').value = cloud.apiBase();
+  $('passForm').hidden = true; $('apiForm').hidden = true;
+  $('sheetWrap').hidden = false;
+  try {                                   // the server is the source of truth
+    const s = await cloud.getWindow();
+    $('sFrom').value = s.from; $('sTo').value = s.to; $('sLift').checked = !!s.lift;
+  } catch { note('Offline — showing the last known window.', true); }
 }
+function closeSheet() {
+  const sheet = $('sheet');
+  if (still.matches) return $('sheetWrap').hidden = true;
+  sheet.animate([{ transform: 'none' }, { transform: 'translateY(100%)' }],
+    { duration: 260, easing: 'cubic-bezier(.4,0,1,1)' })
+    .finished.then(() => { $('sheetWrap').hidden = true; }).catch(() => { $('sheetWrap').hidden = true; });
+}
+$('sClose').onclick = closeSheet;
+$('sheetBg').onclick = closeSheet;
+
+async function saveWindow() {
+  const from = $('sFrom').value, to = $('sTo').value;
+  if (!/^\d{2}:\d{2}$/.test(from) || !/^\d{2}:\d{2}$/.test(to)) return;
+  try {
+    await cloud.setWindow({ from, to, tz: Intl.DateTimeFormat().resolvedOptions().timeZone });
+    note(`Photos open ${windowLabel()}, every day.`);
+  } catch (e) { note('Could not save: ' + e.message, true); }
+}
+$('sFrom').onchange = saveWindow;
+$('sTo').onchange = saveWindow;
+
+$('sLift').onchange = async e => {
+  e.target.disabled = true;
+  try { await cloud.setWindow({ lift: e.target.checked });
+        note(e.target.checked ? 'Lock lifted — remember to put it back.' : 'Lock restored.'); }
+  catch { e.target.checked = !e.target.checked; note('Could not reach the server.', true); }
+  finally { e.target.disabled = false; }
+};
+
+const toggle = (btn, form) => $(btn).onclick = () => {
+  const f = $(form);
+  f.hidden = !f.hidden;
+  if (!f.hidden) f.querySelector('input').focus();
+};
+toggle('sPass', 'passForm');
+toggle('sApi', 'apiForm');
+
+$('pGo').onclick = async () => {
+  const cu = $('pCur').value.trim(), nx = $('pNew').value.trim();
+  if (nx.length < 4) return note('New passcode must be at least 4 characters.', true);
+  $('pGo').disabled = true;
+  try {
+    await cloud.changePasscode(cu, nx);
+    $('pCur').value = $('pNew').value = '';
+    $('passForm').hidden = true;
+    note('Passcode changed.');
+  } catch (e) { note(e.message, true); }
+  finally { $('pGo').disabled = false; }
+};
+$('aGo').onclick = () => {
+  const u = $('aUrl').value.trim();
+  if (!u) return;
+  cloud.setApi(u); $('apiForm').hidden = true;
+  note('Endpoint set to ' + cloud.apiBase());
+};
+$('sOut').onclick = () => {
+  if (!confirm('Sign out of this device?')) return;
+  cloud.logout(); localStorage.removeItem('snapz_index'); location.href = '/lock';
+};
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && !$('sheetWrap').hidden) closeSheet();
+});
 
 /* ================= START ================= */
 registerSW();
@@ -290,4 +350,5 @@ if (!cloud.getToken() && !localStorage.getItem('snapz_nocloud')) location.replac
 startCam();
 paintThumb();
 cloud.flush();
-cloud.list().then(paintThumb).catch(() => {});
+cloud.getWindow().catch(() => {});
+cloud.list({ limit: 1 }).then(d => { cloud.cacheList(d.snaps); paintThumb(); }).catch(() => {});

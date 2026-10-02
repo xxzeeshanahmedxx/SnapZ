@@ -9,17 +9,20 @@ export const SNAP   = 'cubic-bezier(.2,.9,.3,1)';
 export const still  = matchMedia('(prefers-reduced-motion: reduce)');
 
 /* ---------- the open window ----------
-   Photos are viewable during one window each day. Default 18:00–21:00.
-   Stored as "HH:MM-HH:MM" so it reads plainly in devtools. */
-export const HKEY = 'snapz_hours', DEFAULT_WINDOW = '18:00-21:00';
+   The SERVER owns this now: it refuses to list snaps or serve images outside
+   the window, so moving the phone's clock no longer helps. What follows is a
+   local mirror, used only to decide what to draw. */
+export const WKEY = 'snapz_window', HKEY = 'snapz_hours';
+export const DEFAULT_WIN = { from: '18:00', to: '21:00', lift: false };
+
+export function win() {
+  try { return { ...DEFAULT_WIN, ...(JSON.parse(localStorage.getItem(WKEY)) || {}) }; }
+  catch { return { ...DEFAULT_WIN }; }
+}
+const toMins = s => { const m = /^(\d{1,2}):(\d{2})$/.exec(String(s || '')); return m ? +m[1]*60 + +m[2] : 0; };
 const nowMins = (d = new Date()) => d.getHours() * 60 + d.getMinutes();
 
-export function windowMins() {
-  const raw = localStorage.getItem(HKEY) || DEFAULT_WINDOW;
-  const m = /^(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})$/.exec(raw.trim());
-  if (!m) return [1080, 1260];
-  return [Math.min(+m[1] * 60 + +m[2], 1439), Math.min(+m[3] * 60 + +m[4], 1440)];
-}
+export const windowMins = () => { const w = win(); return [toMins(w.from), toMins(w.to)]; };
 export const hhmm = t => {
   const d = new Date(); d.setHours(Math.floor(t / 60) % 24, t % 60, 0, 0);
   return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
@@ -27,13 +30,13 @@ export const hhmm = t => {
 export const windowLabel = () => { const [o, c] = windowMins(); return `${hhmm(o)} – ${hhmm(c)}`; };
 
 /* Handles a window that runs past midnight (22:00–02:00) as well. */
-export function isOpen(d = new Date()) {
+export function inWindow(d = new Date()) {
   const [o, c] = windowMins(), t = nowMins(d);
   return o <= c ? (t >= o && t < c) : (t >= o || t < c);
 }
-export const TEST = 'snapz_testunlock';
-export const lifted = () => localStorage.getItem(TEST) === '1';
-export const locked = () => !isOpen() && !lifted();
+export const lifted = () => win().lift === true;
+export const isOpen = (d) => lifted() || inWindow(d);
+export const locked = () => !isOpen();
 
 export function nextOpen() {
   const [o] = windowMins(), d = new Date();

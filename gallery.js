@@ -2,11 +2,11 @@
    wall is the only thing that stands in front of it. */
 
 import * as cloud from './api.js';
-import { $, SPRING, SNAP, still, isOpen, locked, lifted, TEST,
-         nextOpen, nextClose, windowMins, hhmm, fmtDate, fmtShort, fmtTime,
-         fmtMonth, today, mb, registerSW } from './shared.js';
+import { $, SPRING, SNAP, still, isOpen, locked, lifted,
+         nextClose, windowMins, hhmm, fmtDate, fmtShort, fmtTime,
+         fmtMonth, today, mb, registerSW, win } from './shared.js';
 
-let snaps = [];
+let snaps = [], cursor = null, more = false, total = 0, loading = false;
 const cells = new Map();                 // snap id -> grid element, for the zoom
 let ready = false;
 const animate = (el, frames, opts) => {
@@ -17,12 +17,35 @@ const animate = (el, frames, opts) => {
 /* ================= DATA ================= */
 async function refresh() {
   snaps = cloud.cachedList();            // instant paint from the last index
+  cursor = null; more = false;
   paint();
   if (!cloud.getToken() || !navigator.onLine) return;
-  try { snaps = await cloud.list(); paint(); } catch (e) {
+  try { await cloud.getWindow(); } catch {}
+  try {
+    const d = await cloud.list({ limit: PAGE });
+    snaps = d.snaps; cursor = d.cursor; more = d.more; total = d.total;
+    paint();
+  } catch (e) {
+    if (e instanceof cloud.Closed) { wall(); return; }   // the server says no
     if (String(e.message) === 'unauthorized') location.replace('/lock?next=/gallery');
   }
 }
+
+const PAGE = 60;
+/* Older snaps arrive as you reach the bottom — the DOM never holds the whole
+   archive at once. */
+async function loadMore() {
+  if (loading || !more || !cursor) return;
+  loading = true;
+  $('more').hidden = false;
+  try {
+    const d = await cloud.list({ limit: PAGE, before: cursor });
+    snaps = snaps.concat(d.snaps); cursor = d.cursor; more = d.more; total = d.total;
+    paint();
+  } catch {} finally { loading = false; $('more').hidden = true; }
+}
+const sentinel = new IntersectionObserver(es => { if (es.some(e => e.isIntersecting)) loadMore(); },
+  { rootMargin: '600px' });
 
 /* An honest ledger, not a statistic: how much is recorded, and whether the
    record has holes. */
@@ -38,7 +61,8 @@ function ledger() {
   const bytes = snaps.reduce((n, s) => n + (s.bytes || 0), 0);
   const span = gap ? `unbroken since ${fmtShort(new Date(gap).getTime())}`
                    : `no missing days since ${fmtShort(new Date(days[0]).getTime())}`;
-  el.innerHTML = `<b>${snaps.length} snap${snaps.length === 1 ? '' : 's'} over ${days.length} day${days.length === 1 ? '' : 's'}</b> · ${span} · ${mb(bytes)}`;
+  const n = total || snaps.length;
+  el.innerHTML = `<b>${n} snap${n === 1 ? '' : 's'} over ${days.length} day${days.length === 1 ? '' : 's'}</b> · ${span} · ${mb(bytes)}${more ? '+' : ''}`;
   el.hidden = false;
 }
 
@@ -63,8 +87,9 @@ async function alertBar() {
 
 function paintCount() {
   cloud.pending().then(q => {
-    $('gcount').textContent = snaps.length
-      ? `${snaps.length} ${snaps.length === 1 ? 'snap' : 'snaps'}`
+    const n = total || snaps.length;
+    $('gcount').textContent = n
+      ? `${n} ${n === 1 ? 'snap' : 'snaps'}`
         + (q.length ? ` · ${q.length} pending` : '') + (navigator.onLine ? '' : ' · offline')
       : (navigator.onLine ? '' : 'offline');
   });
@@ -112,6 +137,8 @@ function paint() {
     n++;
   }
   firstPaint = false;
+  $('more').hidden = !more;
+  if (more) sentinel.observe($('more')); else sentinel.disconnect();
 }
 
 /* timestamps appear only when you stop scrolling */
@@ -162,12 +189,15 @@ function closingSoon() {
 setInterval(closingSoon, 20000);
 
 $('wallBack').onclick = () => location.href = '/';
-$('wallTest').onchange = e => {
-  if (e.target.checked) localStorage.setItem(TEST, '1'); else localStorage.removeItem(TEST);
-  navigator.vibrate?.(12);
-  wall();
-};
-$('testChip').onclick = () => { localStorage.removeItem(TEST); wall(); };
+/* The switch is a server setting now, so lifting it really does open the API. */
+async function setLift(on) {
+  $('wallTest').disabled = true;
+  try { await cloud.setWindow({ lift: on }); await refresh(); }
+  catch { alert('Could not reach the server.'); }
+  finally { $('wallTest').disabled = false; wall(); }
+}
+$('wallTest').onchange = e => { navigator.vibrate?.(12); setLift(e.target.checked); };
+$('testChip').onclick = () => setLift(false);
 
 /* ================= VIEWER ================= */
 let cur = null, fromCell = null;
@@ -183,8 +213,9 @@ function fill(s) {
     $('vProof').textContent = `Confirmed by the server · ${s.time || ''}${s.bytes ? ' · ' + mb(s.bytes) : ''}`;
     $('vMap').hidden = s.lat == null;
     if (s.lat != null) $('vMap').href = `https://www.openstreetmap.org/?mlat=${s.lat}&mlon=${s.lon}#map=17/${s.lat}/${s.lon}`;
-    $('vOpen').href = s.url;
-    $('vDl').href = s.url; $('vDl').download = `snapz-${s.id}.webp`;
+    $('vOpen').href = s.url || '#'; $('vOpen').hidden = !s.url;
+    $('vDl').href = s.url || '#'; $('vDl').hidden = !s.url;
+    $('vDl').download = `snapz-${s.id}.webp`;
     $('vPos').textContent = `${snaps.indexOf(s) + 1} of ${snaps.length}`;
     fade.classList.remove('swap');
   }, still.matches ? 0 : 200);
@@ -193,9 +224,11 @@ function fill(s) {
 function load(s) {
   cur = s;
   $('vImg').src = s.thumb_url || s.url;          // show instantly…
-  const full = new Image();
-  full.onload = () => { if (cur === s) $('vImg').src = s.url; };
-  full.src = s.url;                              // …then swap in full resolution
+  if (s.url) {                                   // …then full resolution, if the
+    const full = new Image();                    //    server is handing it out
+    full.onload = () => { if (cur === s) $('vImg').src = s.url; };
+    full.src = s.url;
+  }
   fill(s);
 }
 
@@ -281,26 +314,53 @@ const endDrag = e => {
 stage.addEventListener('pointerup', endDrag);
 stage.addEventListener('pointercancel', endDrag);
 
+/* Deletion is reversible: the row is flagged, the bytes survive 30 days. */
+let undoTimer;
 $('vDel').onclick = async () => {
-  if (!cur || !confirm('Delete this snap?')) return;
-  const id = cur.id;
+  if (!cur) return;
+  const snap = cur, id = snap.id;
   closeViewer();
-  await cloud.remove(id);
   snaps = snaps.filter(s => s.id !== id);
-  localStorage.setItem('snapz_index', JSON.stringify(snaps));
+  cloud.cacheList(snaps);
   paint();
+  try { await cloud.remove(id); } catch { }
+  toast('Snap deleted', 'Undo', async () => {
+    try { await cloud.restore(id); } catch {}
+    await refresh();
+  });
 };
+
+function toast(msg, actionLabel, action) {
+  const t = $('toast');
+  clearTimeout(undoTimer);
+  t.innerHTML = '';
+  const s = document.createElement('span'); s.textContent = msg;
+  t.appendChild(s);
+  if (actionLabel) {
+    const b = document.createElement('button');
+    b.textContent = actionLabel;
+    b.onclick = async () => { t.hidden = true; clearTimeout(undoTimer); await action(); };
+    t.appendChild(b);
+  }
+  t.hidden = false;
+  undoTimer = setTimeout(() => { t.hidden = true; }, 9000);
+}
 
 /* ================= TIME-LAPSE ================= */
 let lapseTimer, frames = [], recorder = null, LW = 1080, LH = 1440;
+/* Playback uses the ~20 KB thumbnails. Loading hundreds of full-resolution
+   photos just to watch them flicker would stall the phone. */
+const loadImg = src => new Promise(r => {
+  const i = new Image(); i.crossOrigin = 'anonymous';
+  i.onload = () => r(i); i.onerror = () => r(null); i.src = src;
+});
 $('playBtn').onclick = async () => {
   const ordered = [...snaps].reverse();
-  frames = await Promise.all(ordered.map(s => new Promise(r => {
-    const i = new Image(); i.crossOrigin = 'anonymous';
-    i.onload = () => r({ img: i, ts: s.ts }); i.onerror = () => r(null);
-    i.src = s.url;
-  })));
-  frames = frames.filter(Boolean);
+  $('playBtn').disabled = true;
+  frames = (await Promise.all(ordered.map(async s =>
+    ({ img: await loadImg(s.thumb_url || s.url), ts: s.ts, full: s.url }))))
+    .filter(f => f.img);
+  $('playBtn').disabled = false;
   if (!frames.length) return;
   LW = 1080; LH = Math.round(1080 * frames[0].img.height / frames[0].img.width);
   $('lapse').hidden = false; playLapse();
@@ -337,8 +397,16 @@ $('lSave').onclick = async () => {
     a.download = `snapz-timelapse.${mime.includes('mp4') ? 'mp4' : 'webm'}`; a.click();
     recorder = null; $('lSave').textContent = 'Save video';
   };
-  recorder.start(); $('lSave').textContent = 'Rendering…';
-  for (const f of frames) { paintFrame(g, f, LW, LH); await new Promise(r => setTimeout(r, 1000/fps)); }
+  recorder.start();
+  /* The export is the one place that deserves full resolution. Each frame is
+     fetched just before it is drawn, then released. */
+  let n = 0;
+  for (const f of frames) {
+    $('lSave').textContent = `Rendering ${++n}/${frames.length}`;
+    const full = (f.full && await loadImg(f.full)) || f.img;
+    paintFrame(g, { img: full, ts: f.ts }, LW, LH);
+    await new Promise(r => setTimeout(r, 1000/fps));
+  }
   await new Promise(r => setTimeout(r, 250));
   recorder.stop();
 };

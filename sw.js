@@ -2,7 +2,7 @@
    Photos come from R2 and are cached on first view; only failed uploads are
    held locally, in the outbox. */
 
-const VERSION = 'snapz-v12';
+const VERSION = 'snapz-v13';
 const SHELL = [
   '/',
   '/index.html',
@@ -89,6 +89,59 @@ self.addEventListener('fetch', e => {
       return hit || net;
     })
   );
+});
+
+/* ---------- Background Sync ----------
+   The browser replays this even if SnapZ is closed, so a failed upload is no
+   longer hostage to you reopening the app. */
+const DB = 'snapz-outbox', OUTBOX = 'outbox', META = 'meta';
+
+const openDB = () => new Promise((res, rej) => {
+  const r = indexedDB.open(DB, 3);
+  r.onsuccess = () => res(r.result);
+  r.onerror = () => rej(r.error);
+});
+const store = async (name, mode, fn) => {
+  const db = await openDB();
+  return new Promise((res, rej) => {
+    const t = db.transaction(name, mode), out = fn(t.objectStore(name));
+    t.oncomplete = () => res(out?.result ?? out);
+    t.onerror = () => rej(t.error);
+  });
+};
+
+async function drainOutbox() {
+  let token = '', api = '';
+  try {
+    token = (await store(META, 'readonly', s => s.get('token')))?.v || '';
+    api   = (await store(META, 'readonly', s => s.get('api')))?.v || '';
+  } catch { return; }
+  if (!token || !api) return;
+
+  const pending = await store(OUTBOX, 'readonly', s => s.getAll()).catch(() => []);
+  for (const rec of pending) {
+    const fd = new FormData();
+    fd.set('image', rec.blob, `${rec.day}.webp`);
+    if (rec.thumb) fd.set('thumb', rec.thumb, `${rec.day}-t.webp`);
+    fd.set('day', rec.day);
+    fd.set('ts', String(rec.ts));
+    fd.set('time', new Date(rec.ts).toTimeString().slice(0, 8));
+    if (rec.lat != null) { fd.set('lat', rec.lat); fd.set('lon', rec.lon); }
+    if (rec.acc != null) fd.set('accuracy', rec.acc);
+    if (rec.place) fd.set('place', rec.place);
+    if (rec.w) { fd.set('width', rec.w); fd.set('height', rec.h); }
+
+    const res = await fetch(`${api}/api/snap`, {
+      method: 'POST', headers: { authorization: `Bearer ${token}` }, body: fd
+    }).catch(() => null);
+
+    if (res && res.ok) await store(OUTBOX, 'readwrite', s => s.delete(rec.qid));
+    else throw new Error('retry later');      // keeps the sync registration alive
+  }
+}
+
+self.addEventListener('sync', e => {
+  if (e.tag === 'snapz-outbox') e.waitUntil(drainOutbox());
 });
 
 /* Let the page trigger a sync attempt when it regains connectivity. */

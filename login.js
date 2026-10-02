@@ -23,9 +23,25 @@ async function doLogin() {
     await cloud.login(pass);
     cloud.flush();
     location.replace(next);
-  } catch (e) { fail(String(e.message || e)); }
-  finally { $('lockGo').disabled = false; $('lockGo').textContent = 'Continue'; }
+  } catch (e) {
+    fail(String(e.message || e));
+    if (e.retryAfter) countdown(e.retryAfter);
+  }
+  finally { if (!cdTimer || $('lockGo').textContent === 'Checking…') {
+    $('lockGo').disabled = false; $('lockGo').textContent = 'Continue'; } }
 }
+/* After too many wrong guesses the server makes you wait. Say so plainly. */
+let cdTimer;
+function countdown(secs) {
+  clearInterval(cdTimer);
+  $('lockGo').disabled = true;
+  const tick = () => {
+    $('lockGo').textContent = `Wait ${secs}s`;
+    if (secs-- <= 0) { clearInterval(cdTimer); $('lockGo').disabled = false; $('lockGo').textContent = 'Continue'; }
+  };
+  tick(); cdTimer = setInterval(tick, 1000);
+}
+
 function fail(msg) {
   const el = $('lockErr');
   el.hidden = true; void el.offsetWidth;

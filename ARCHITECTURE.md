@@ -37,11 +37,13 @@ If the request fails, the record goes to the **outbox** (IndexedDB) and is
 retried on the next launch or when the device comes back online. The outbox is
 the only local copy and it is deleted the moment the upload lands.
 
-## 3. Gallery — cloud only
-The grid is built from `GET /api/snaps` (D1) and nothing else. Each tile is the
-**thumbnail** (~20 KB), so a year of photos paints in a moment. The last known
-list is kept in `localStorage` purely so the grid appears instantly on open; it
-is replaced by the real response a moment later. No image is ever read from
+## 3. Gallery — cloud only, and paginated
+The grid is built from `GET /api/snaps` (D1) and nothing else, **60 at a time**
+with a `ts` cursor; older snaps load as you approach the bottom, so the DOM
+never holds the whole archive. Each tile is the
+**thumbnail** (~20 KB), so a year of photos paints in a moment. The last known list is kept in `localStorage` — **capped at 60 entries and
+written through a quota-safe guard** — purely so the grid appears instantly on
+open; it is replaced by the real response a moment later. No image is ever read from
 local storage.
 
 Opening a photo shows the thumbnail immediately, then swaps in the full image
@@ -65,18 +67,38 @@ The window is checked every second, so it **shuts on you mid-session**: at
 window is open and fewer than 30 minutes remain, an amber line reads "Closes in
 12 minutes · 9:00 PM".
 
-Set it from the long-press menu on the camera's thumbnail, under `hours`, as
-`HH:MM-HH:MM` (`localStorage.snapz_hours`). Windows crossing midnight work.
+**The window is enforced by the server**, not just the browser: outside it the
+Worker withholds every full-resolution link and `/i/` refuses full images.
+Changing the phone's clock no longer helps. Set it in **Settings** (long-press
+the camera's thumbnail) with two time fields; it is stored in D1 along with your
+timezone. Windows crossing midnight work.
 
-**Testing switch.** The wall carries a toggle that lifts the lock
-(`localStorage.snapz_testunlock`). While lifted, a loud amber chip sits at the
-bottom of the screen — tap it to restore. Client-side, so it is an honesty
-mechanism, not a security boundary.
+**Testing switch.** Settings — and the wall itself — carry a toggle that lifts
+the lock. It is a **server** setting now, so lifting it genuinely reopens the
+API. While lifted, a loud amber chip sits at the bottom of the gallery.
 
-## 5. Passcode
-Your passcode protects the **API**, not the phone. It is PBKDF2-hashed in D1;
-logging in returns a signed token kept in `localStorage` for a year. Without it,
-nobody can read your photos even with the API URL.
+## 5. Passcode, and who can actually read your photos
+
+Your passcode protects the API. It is PBKDF2-hashed (100k rounds) in D1;
+logging in returns a signed token kept for a year. **Login is rate limited** —
+four free attempts, then a wait that doubles from 15 seconds up to 15 minutes.
+
+**Images are not public.** `/i/:key` requires an HMAC signature that only an
+authenticated list call issues, valid for 7 days, and it obeys the window.
+Object keys carry a random suffix so they cannot be guessed. Responses are
+cached at Cloudflare's edge, so the second view of a photo never touches R2.
+
+While the window is **shut**, the API still returns metadata and **thumbnail**
+links — that is what lets the gallery render behind the wall — but it issues
+**no full-resolution URL at all**, and `/i/` refuses any non-thumbnail key.
+
+## 5b. Deletion is reversible
+
+`DELETE /api/snap/:id` only flags the row. The bytes stay in R2 for **30 days**,
+the snap appears in `GET /api/trash` with its purge date, and
+`POST /api/snap/:id/restore` brings it back. The gallery shows an **Undo** toast
+for nine seconds after a delete. A sweep on each list call removes anything past
+its 30 days for real.
 
 ## 6. Feel — what the motion is doing
 

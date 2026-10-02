@@ -53,6 +53,52 @@
   <div id="flight" class="flight" hidden></div>
 </section>
 
+<!-- ================= SETTINGS =================
+     Long-press the thumbnail. No prompts, no typed commands. -->
+<div id="sheetWrap" class="sheet-wrap" hidden>
+  <div id="sheetBg" class="sheet-bg"></div>
+  <section id="sheet" class="sheet" role="dialog" aria-label="Settings">
+    <div class="grab"></div>
+    <h2>Settings</h2>
+
+    <div class="row">
+      <label for="sFrom">Photos open</label>
+      <div class="times">
+        <input id="sFrom" type="time" step="300" value="18:00">
+        <span>to</span>
+        <input id="sTo" type="time" step="300" value="21:00">
+      </div>
+    </div>
+    <p class="rowsub" id="sWinNote">Enforced by the server, not just this phone.</p>
+
+    <div class="row">
+      <label for="sLift">Lift the lock <span class="tag">testing</span></label>
+      <label class="sw bare"><input id="sLift" type="checkbox">
+        <span class="sw-track"><span class="sw-knob"></span></span></label>
+    </div>
+
+    <div class="row stack">
+      <button id="sPass" class="pill ghost wide">Change passcode</button>
+      <div id="passForm" class="subform" hidden>
+        <input id="pCur" type="password" autocomplete="current-password" placeholder="Current passcode">
+        <input id="pNew" type="password" autocomplete="new-password" placeholder="New passcode">
+        <button id="pGo" class="pill wide">Save passcode</button>
+      </div>
+
+      <button id="sApi" class="pill ghost wide">API endpoint</button>
+      <div id="apiForm" class="subform" hidden>
+        <input id="aUrl" type="url" inputmode="url" placeholder="https://…">
+        <button id="aGo" class="pill wide">Save endpoint</button>
+      </div>
+
+      <button id="sOut" class="pill ghost wide danger">Sign out</button>
+    </div>
+
+    <p id="sMsg" class="sheet-msg" hidden></p>
+    <button id="sClose" class="pill wide">Done</button>
+  </section>
+</div>
+
 <!-- ================= LOGIN ================= -->
 <section id="login" class="screen lock" hidden>
   <div class="lock-box">
