@@ -88,10 +88,11 @@ async function alertBar() {
 function paintCount() {
   cloud.pending().then(q => {
     const n = total || snaps.length;
+    const days = new Set(snaps.map(s => s.day)).size;
     $('gcount').textContent = n
-      ? `${n} ${n === 1 ? 'snap' : 'snaps'}`
-        + (q.length ? ` · ${q.length} pending` : '') + (navigator.onLine ? '' : ' · offline')
-      : (navigator.onLine ? '' : 'offline');
+      ? `${n} ${n === 1 ? 'Photo' : 'Photos'}${days ? ` · ${days} ${days === 1 ? 'Day' : 'Days'}` : ''}`
+        + (q.length ? ` · ${q.length} pending` : '') + (navigator.onLine ? '' : ' · Offline')
+      : (navigator.onLine ? 'No photos yet' : 'Offline');
   });
 }
 
@@ -141,9 +142,12 @@ function paint() {
   if (more) sentinel.observe($('more')); else sentinel.disconnect();
 }
 
-/* timestamps appear only when you stop scrolling */
+/* The large title collapses into a compact bar, and timestamps appear only
+   once you stop scrolling. */
 let restTimer;
-addEventListener('scroll', () => {
+const gal = $('gal');
+gal.addEventListener('scroll', () => {
+  $('nav').classList.toggle('solid', gal.scrollTop > 26);
   $('grid').classList.remove('rest');
   clearTimeout(restTimer);
   restTimer = setTimeout(() => $('grid').classList.add('rest'), 220);

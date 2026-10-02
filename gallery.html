@@ -15,18 +15,28 @@
 <body class="page">
 <!-- ================= GALLERY ================= -->
 <section id="gal" class="screen on">
-  <header class="ghead">
-    <button id="toCam" class="icobtn" aria-label="Back to camera">
-      <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
-    </button>
-    <span id="gcount"></span>
-    <div class="ghead-r">
-      <button id="playBtn" class="icobtn" aria-label="Time-lapse">
-        <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+  <header id="nav" class="navbar">
+    <div class="navrow">
+      <button id="toCam" class="navback" aria-label="Camera">
+        <svg viewBox="0 0 24 24" width="25" height="25" fill="none" stroke="currentColor"
+             stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 19l-7-7 7-7"/></svg>
+        Camera
       </button>
-      <button id="menu" class="icobtn" aria-label="Export">
-        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
-      </button>
+      <span id="navTitle" class="navtitle">Library</span>
+      <div class="ghead-r">
+        <button id="playBtn" class="icobtn" aria-label="Time-lapse">
+          <svg viewBox="0 0 24 24" width="23" height="23" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg>
+        </button>
+        <button id="menu" class="icobtn" aria-label="Export">
+          <svg viewBox="0 0 24 24" width="23" height="23" fill="none" stroke="currentColor"
+               stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 16V3M8 7l4-4 4 4"/><path d="M4 14v5a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="largetitle">
+      <h1>Library</h1>
+      <p id="gcount"></p>
     </div>
   </header>
 

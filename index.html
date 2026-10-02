@@ -61,83 +61,51 @@
     <div class="grab"></div>
     <h2>Settings</h2>
 
-    <div class="row">
-      <label for="sFrom">Photos open</label>
-      <div class="times">
-        <input id="sFrom" type="time" step="300" value="18:00">
-        <span>to</span>
-        <input id="sTo" type="time" step="300" value="21:00">
+    <p class="grouphead">Viewing window</p>
+    <div class="group">
+      <div class="row">
+        <label for="sFrom" class="rowlabel">Photos open</label>
+        <div class="times">
+          <input id="sFrom" type="time" step="300" value="18:00">
+          <span>to</span>
+          <input id="sTo" type="time" step="300" value="21:00">
+        </div>
+      </div>
+      <div class="row">
+        <label for="sLift" class="rowlabel">Lift the lock <span class="tag">testing</span></label>
+        <label class="sw"><input id="sLift" type="checkbox"><span class="sw-track"><span class="sw-knob"></span></span></label>
       </div>
     </div>
-    <p class="rowsub" id="sWinNote">Enforced by the server, not just this phone.</p>
+    <p class="groupfoot">Enforced by the server, not just this phone. Taking photos is never blocked.</p>
 
-    <div class="row">
-      <label for="sLift">Lift the lock <span class="tag">testing</span></label>
-      <label class="sw bare"><input id="sLift" type="checkbox">
-        <span class="sw-track"><span class="sw-knob"></span></span></label>
-    </div>
-
-    <div class="row stack">
-      <button id="sPass" class="pill ghost wide">Change passcode</button>
+    <p class="grouphead">Account</p>
+    <div class="group">
+      <button id="sPass" class="row tap">Change passcode
+        <svg class="chev" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor"
+             stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>
+      </button>
       <div id="passForm" class="subform" hidden>
         <input id="pCur" type="password" autocomplete="current-password" placeholder="Current passcode">
         <input id="pNew" type="password" autocomplete="new-password" placeholder="New passcode">
-        <button id="pGo" class="pill wide">Save passcode</button>
+        <button id="pGo" class="pill">Save passcode</button>
       </div>
-
-      <button id="sApi" class="pill ghost wide">API endpoint</button>
+      <button id="sApi" class="row tap">API endpoint
+        <svg class="chev" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor"
+             stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>
+      </button>
       <div id="apiForm" class="subform" hidden>
         <input id="aUrl" type="url" inputmode="url" placeholder="https://…">
-        <button id="aGo" class="pill wide">Save endpoint</button>
+        <button id="aGo" class="pill">Save endpoint</button>
       </div>
-
-      <button id="sOut" class="pill ghost wide danger">Sign out</button>
+      <button id="sOut" class="row tap danger">Sign out</button>
     </div>
 
     <p id="sMsg" class="sheet-msg" hidden></p>
-    <button id="sClose" class="pill wide">Done</button>
+    <button id="sClose" class="pill done">Done</button>
   </section>
 </div>
 
 <!-- ================= LOGIN ================= -->
-<section id="login" class="screen lock" hidden>
-  <div class="lock-box">
-    <div class="lock-logo"></div>
-    <h1 id="lockTitle">Enter passcode</h1>
-    <p id="lockSub">Unlock cloud backup on this device</p>
-    <input id="lockPass" type="password" inputmode="text" autocomplete="current-password"
-           placeholder="Passcode" enterkeyhint="go">
-    <p id="lockErr" class="lock-err" hidden></p>
-    <button id="lockGo" class="pill wide">Continue</button>
-    <button id="lockSkip" class="linkish">Use this device without backup</button>
-  </div>
-</section>
-
-<!-- ================= GALLERY ================= -->
-<section id="gal" class="screen">
-  <header class="ghead">
-    <button id="toCam" class="icobtn" aria-label="Back to camera">
-      <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
-    </button>
-    <span id="gcount"></span>
-    <div class="ghead-r">
-      <button id="playBtn" class="icobtn" aria-label="Time-lapse">
-        <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-      </button>
-      <button id="menu" class="icobtn" aria-label="Export">
-        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
-      </button>
-    </div>
-  </header>
-
-  <!-- honest state of the archive, never a statistic -->
-  <p id="ledger" class="ledger" hidden></p>
-  <p id="closing" class="closing" hidden></p>
-  <div id="alert" class="alert" hidden></div>
-
-  <div id="grid" class="grid"></div>
-  <p id="empty" class="empty" hidden>No snaps yet</p>
-</section>
 <script type="module" src="/camera.js"></script>
 </body>
 </html>
