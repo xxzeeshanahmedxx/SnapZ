@@ -241,6 +241,12 @@ a{color:var(--text)}
   animation:shake .4s var(--fade)}
 @keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-5px)}75%{transform:translateX(5px)}}
 
+.closing{margin:8px 16px 0;font-size:12px;color:var(--warn);letter-spacing:-.005em;
+  display:flex;align-items:center;gap:7px;animation:rise .4s var(--snap) both}
+.closing:before{content:'';width:5px;height:5px;border-radius:50%;background:var(--warn);flex:0 0 auto;
+  animation:pulse 2s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+
 /* ================= LOCK WALL =================
    The page underneath renders in full. This sheet is the whole restriction:
    fixed, opaque enough to be a wall, blurred enough that detail does not read. */

@@ -57,17 +57,23 @@ cache header, so each photo downloads once per device.
 
 ## 4. The lock wall
 
-On a closed day the gallery renders **completely normally** — every photo, the
-month headers, the ledger, all of it. The restriction is a single fixed sheet
-on top: translucent and heavily blurred, saying **Locked**, with the countdown
-to the next open day and a confirmation of today's upload. It swallows every
-tap, so nothing underneath can be opened.
+Photos are viewable inside **one window each day — 18:00 to 21:00** by default.
+Outside it the gallery still renders **completely normally** (every photo, the
+month headers, the ledger); the restriction is a single fixed sheet on top:
+translucent, heavily blurred, saying **Locked**, with a live countdown to the
+next opening and a confirmation of today's upload. It swallows every tap.
 
 It covers the gallery, the viewer and the time-lapse. It never covers the
 camera — **capture is never gated**.
 
-Open days default to Friday and Sunday (`localStorage.snapz_days`, changeable
-from the long-press menu).
+The window is checked every second, so it **shuts on you mid-session**: at
+21:00 the viewer and time-lapse close themselves and the wall drops. While the
+window is open and fewer than 30 minutes remain, an amber line in the gallery
+reads "Closes in 12 minutes · 9:00 PM", so the close is never an ambush.
+
+Set it from the long-press menu under `hours`, as `HH:MM-HH:MM`
+(`localStorage.snapz_hours`). Windows that cross midnight, like `22:00-02:00`,
+are handled.
 
 **Testing switch.** The wall carries a toggle that lifts the lock, stored in
 `localStorage.snapz_testunlock`. While it is lifted a loud amber chip sits at

@@ -18,25 +18,51 @@ const animate = (el, frames, opts) => {
   return el.animate(frames, { fill: 'both', ...opts });
 };
 
-/* ---------- day gate ---------- */
-const DAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-const openDays = () => { try { return JSON.parse(localStorage.getItem('snapz_days')) || [0,5]; }
-                         catch { return [0,5]; } };
-const isOpen = () => openDays().includes(new Date().getDay());
+/* ---------- the open window ----------
+   Photos are viewable during one window each day. Default 18:00–21:00.
+   Stored as "HH:MM-HH:MM" so it reads plainly in devtools. */
+const HKEY = 'snapz_hours', DEFAULT_WINDOW = '18:00-21:00';
+const nowMins = (d = new Date()) => d.getHours() * 60 + d.getMinutes();
+
+function windowMins() {
+  const raw = localStorage.getItem(HKEY) || DEFAULT_WINDOW;
+  const m = /^(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})$/.exec(raw.trim());
+  if (!m) return [1080, 1260];
+  const a1 = +m[1] * 60 + +m[2], b1 = +m[3] * 60 + +m[4];
+  return [Math.min(a1, 1439), Math.min(b1, 1440)];
+}
+const hhmm = t => {
+  const h = Math.floor(t / 60) % 24, m = t % 60;
+  const d = new Date(); d.setHours(h, m, 0, 0);
+  return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+};
+const windowLabel = () => { const [o, c] = windowMins(); return `${hhmm(o)} – ${hhmm(c)}`; };
+
+/* Handles a window that runs past midnight (22:00–02:00) as well. */
+function isOpen(d = new Date()) {
+  const [o, c] = windowMins(), t = nowMins(d);
+  return o <= c ? (t >= o && t < c) : (t >= o || t < c);
+}
 /* A testing override. Deliberately loud in the UI so it cannot be left on by
    accident. */
 const TEST = 'snapz_testunlock';
 const lifted = () => localStorage.getItem(TEST) === '1';
 const locked = () => !isOpen() && !lifted();
+
+/* The next moment it opens, and the next moment it shuts. */
 function nextOpen() {
-  const n = new Date();
-  for (let i = 1; i <= 7; i++) {
-    const d = new Date(n); d.setDate(n.getDate() + i); d.setHours(0,0,0,0);
-    if (openDays().includes(d.getDay())) return d;
-  }
+  const [o] = windowMins(), d = new Date();
+  d.setHours(0, 0, 0, 0); d.setMinutes(o);
+  if (d <= Date.now()) d.setDate(d.getDate() + 1);
+  return d;
 }
-const plural = list => list.length === 1 ? list[0] + 's'
-  : list.slice(0, -1).map(d => d + 's').join(', ') + ' and ' + list.at(-1) + 's';
+function nextClose() {
+  const [o, c] = windowMins(), d = new Date();
+  d.setHours(0, 0, 0, 0); d.setMinutes(c);
+  if (o > c && nowMins() >= o) d.setDate(d.getDate() + 1);  // wraps midnight
+  if (d <= Date.now()) d.setDate(d.getDate() + 1);
+  return d;
+}
 
 /* ---------- dates ---------- */
 const fmtDate  = ts => new Date(ts).toLocaleDateString(undefined, { weekday:'long', day:'numeric', month:'long', year:'numeric' });
@@ -355,7 +381,7 @@ function paint() {
     t.style.backgroundImage = `url(${snaps[0].thumb_url || snaps[0].url})`;
 
   $('playBtn').hidden = snaps.length < 2;
-  paintCount(); alertBar(); wall();
+  paintCount(); alertBar(); wall(); closingSoon();
 
   const grid = $('grid');
   grid.innerHTML = '';
@@ -441,19 +467,45 @@ function wall() {
   }
   if (w.hidden) {
     w.hidden = false;
-    $('wallMsg').textContent = 'You chose ' + plural(openDays().map(d => DAYS[d])) + '.';
+    $('wallMsg').textContent = `You chose ${windowLabel()}, every day.`;
     wallProof();
   }
   clearInterval(wallTimer);
   const tick = () => {
-    const n = nextOpen(); if (!n) return;
-    const s = Math.max(0, Math.floor((n - Date.now()) / 1000));
-    const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), d = Math.floor(h/24);
-    $('wallCount').textContent = d > 0 ? `Opens in ${d}d ${h%24}h ${m}m` : `Opens in ${h}h ${m}m ${s%60}s`;
-    if (!s) { clearInterval(wallTimer); w.hidden = true; refresh(); }
+    const s = Math.max(0, Math.round((nextOpen() - Date.now()) / 1000));
+    const h = Math.floor(s/3600), m = Math.floor((s%3600)/60);
+    $('wallCount').textContent = h
+      ? `Opens in ${h}h ${String(m).padStart(2,'0')}m ${String(s%60).padStart(2,'0')}s`
+      : `Opens in ${m}m ${String(s%60).padStart(2,'0')}s`;
+    if (!s) { clearInterval(wallTimer); wall(); refresh(); }
   };
   tick(); wallTimer = setInterval(tick, 1000);
 }
+
+/* The window closes as well as opens — watch the clock, not just the load. */
+let wasOpen = isOpen();
+setInterval(() => {
+  const now = isOpen();
+  if (now === wasOpen) return;
+  wasOpen = now;
+  if (!now && !lifted()) {               // just shut
+    if (!$('lapse').hidden) $('lClose').onclick();
+    if (!$('viewer').hidden) closeViewer();
+  }
+  wall();
+  if (now) refresh();
+}, 1000);
+
+/* A quiet note while the window is open, so the close never ambushes you. */
+function closingSoon() {
+  const el = $('closing');
+  if (!isOpen() || lifted()) { el.hidden = true; return; }
+  const mins = Math.round((nextClose() - Date.now()) / 60000);
+  el.hidden = mins > 30;
+  if (mins <= 30) el.textContent = mins <= 1 ? 'Closing in under a minute'
+    : `Closes in ${mins} minutes · ${hhmm(windowMins()[1])}`;
+}
+setInterval(closingSoon, 20000);
 
 $('wallBack').onclick = () => { clearInterval(wallTimer); $('wall').hidden = true; show('cam'); };
 $('wallTest').onchange = e => {
@@ -692,23 +744,21 @@ $('toGallery').addEventListener('pointerdown', () => {
     press = null;
     navigator.vibrate?.(14);
     if (!cloud.getToken()) { localStorage.removeItem('snapz_nocloud'); return showLogin(); }
-    const c = prompt('Type: days · test · passcode · signout · api', '');
+    const c = prompt('Type: hours · test · passcode · signout · api', '');
     if (c === 'test') {
       if (lifted()) localStorage.removeItem(TEST); else localStorage.setItem(TEST, '1');
       alert(lifted() ? 'Lock lifted (testing).' : 'Lock restored.');
       return wall();
     }
-    if (c === 'days') {
-      const map = { sun:0, mon:1, tue:2, wed:3, thu:4, fri:5, sat:6 };
-      const v = prompt('Days you can view photos, e.g. sun,fri',
-                       openDays().map(d => DAYS[d].slice(0,3).toLowerCase()).join(','));
+    if (c === 'hours') {
+      const v = prompt('Viewing window, e.g. 18:00-21:00',
+                       localStorage.getItem(HKEY) || DEFAULT_WINDOW);
       if (!v) return;
-      const days = [...new Set(v.toLowerCase().split(/[,\s]+/).map(x => map[x.slice(0,3)])
-        .filter(x => x !== undefined))].sort();
-      if (!days.length) return alert('No valid days.');
-      localStorage.setItem('snapz_days', JSON.stringify(days));
-      alert('Viewing days: ' + days.map(d => DAYS[d]).join(', '));
-      paint();
+      if (!/^\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}$/.test(v.trim()))
+        return alert('Use HH:MM-HH:MM, e.g. 18:00-21:00');
+      localStorage.setItem(HKEY, v.trim());
+      alert('Photos open ' + windowLabel() + ', every day.');
+      wasOpen = isOpen(); wall(); paint();
     } else if (c === 'passcode') {
       const cu = prompt('Current passcode'), nx = prompt('New passcode');
       if (cu && nx) cloud.changePasscode(cu, nx).then(() => alert('Changed')).catch(e => alert(e.message));
