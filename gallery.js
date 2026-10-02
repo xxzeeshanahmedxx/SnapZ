@@ -47,25 +47,6 @@ async function loadMore() {
 const sentinel = new IntersectionObserver(es => { if (es.some(e => e.isIntersecting)) loadMore(); },
   { rootMargin: '600px' });
 
-/* An honest ledger, not a statistic: how much is recorded, and whether the
-   record has holes. */
-function ledger() {
-  const el = $('ledger');
-  if (!snaps.length) { el.hidden = true; return; }
-  const days = [...new Set(snaps.map(s => s.day))].sort();
-  let gap = null;
-  for (let i = days.length - 1; i > 0; i--) {
-    const d = Math.round((new Date(days[i]) - new Date(days[i-1])) / 86400000);
-    if (d > 1) { gap = days[i]; break; }
-  }
-  const bytes = snaps.reduce((n, s) => n + (s.bytes || 0), 0);
-  const span = gap ? `unbroken since ${fmtShort(new Date(gap).getTime())}`
-                   : `no missing days since ${fmtShort(new Date(days[0]).getTime())}`;
-  const n = total || snaps.length;
-  el.innerHTML = `<b>${n} snap${n === 1 ? '' : 's'} over ${days.length} day${days.length === 1 ? '' : 's'}</b> · ${span} · ${mb(bytes)}${more ? '+' : ''}`;
-  el.hidden = false;
-}
-
 /* Failures are stated, never swallowed. */
 async function alertBar() {
   const el = $('alert');
@@ -85,21 +66,10 @@ async function alertBar() {
   el.hidden = false;
 }
 
-function paintCount() {
-  cloud.pending().then(q => {
-    const n = total || snaps.length;
-    const days = new Set(snaps.map(s => s.day)).size;
-    $('gcount').textContent = n
-      ? `${n} ${n === 1 ? 'Photo' : 'Photos'}${days ? ` · ${days} ${days === 1 ? 'Day' : 'Days'}` : ''}`
-        + (q.length ? ` · ${q.length} pending` : '') + (navigator.onLine ? '' : ' · Offline')
-      : (navigator.onLine ? 'No photos yet' : 'Offline');
-  });
-}
-
 let firstPaint = true;
 function paint() {
   $('playBtn').hidden = snaps.length < 2;
-  paintCount(); alertBar(); wall(); closingSoon(); ledger();
+  alertBar(); wall(); closingSoon();
   $('empty').hidden = snaps.length > 0;
 
   const grid = $('grid');
@@ -125,14 +95,9 @@ function paint() {
     i.loading = 'lazy'; i.decoding = 'async'; i.alt = '';
     i.onload = () => i.classList.add('in');
     if (i.complete) i.classList.add('in');
-    const d = document.createElement('span');
-    d.className = 'dnum'; d.textContent = fmtTime(s.ts);
-    cell.append(i, d);
+    cell.append(i);
     cell.onclick = () => openViewer(s, cell);
-    if (firstPaint && n < 12 && !still.matches) {
-      cell.classList.add('enter');
-      cell.style.animationDelay = (n * 22) + 'ms';
-    }
+    cell.style.setProperty('--i', firstPaint && n < 15 && !still.matches ? n : 0);
     grid.appendChild(cell);
     cells.set(s.id, cell);
     n++;
@@ -142,15 +107,10 @@ function paint() {
   if (more) sentinel.observe($('more')); else sentinel.disconnect();
 }
 
-/* The large title collapses into a compact bar, and timestamps appear only
-   once you stop scrolling. */
-let restTimer;
+/* the display title condenses into the bar as you scroll */
 const gal = $('gal');
 gal.addEventListener('scroll', () => {
-  $('nav').classList.toggle('solid', gal.scrollTop > 26);
-  $('grid').classList.remove('rest');
-  clearTimeout(restTimer);
-  restTimer = setTimeout(() => $('grid').classList.add('rest'), 220);
+  $('nav').classList.toggle('solid', gal.scrollTop > 20);
 }, { passive: true });
 
 $('toCam').onclick = () => location.href = '/';
@@ -443,10 +403,9 @@ document.addEventListener('keydown', e => {
 /* ================= START ================= */
 registerSW();
 addEventListener('online', async () => { await cloud.flush(); refresh(); });
-addEventListener('offline', () => { paintCount(); alertBar(); });
+addEventListener('offline', () => { alertBar(); });
 
 if (!cloud.getToken()) location.replace('/lock?next=/gallery');
-$('grid').classList.add('rest');
 wall();
 refresh();
 requestAnimationFrame(() => { ready = true; });
