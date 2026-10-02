@@ -93,16 +93,29 @@
   <p id="empty" class="empty" hidden>No snaps yet</p>
 </section>
 
-<!-- ================= DAY GATE ================= -->
-<section id="gate" class="screen lock" hidden>
-  <div class="lock-box">
-    <div class="gate-cal"><span id="gateDay">—</span></div>
-    <h1 id="gateTitle">You chose Fridays</h1>
-    <p id="gateMsg">Your photos open on Friday and Sunday.</p>
-    <p id="gateCount" class="gate-count"></p>
-    <button id="gateClose" class="pill wide">Back to camera</button>
+<!-- ================= LOCK WALL =================
+     Everything behind this renders normally. The wall is the restriction. -->
+<div id="wall" class="wall" hidden>
+  <div class="wall-in">
+    <svg class="wall-ico" viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="4" y="10.5" width="16" height="10.5" rx="2.5"/>
+      <path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/>
+    </svg>
+    <h1>Locked</h1>
+    <p id="wallMsg">You chose Fridays and Sundays.</p>
+    <p id="wallCount" class="wall-count"></p>
+    <div id="wallProof" class="wall-proof"></div>
+    <button id="wallBack" class="pill ghost wall-back">Back to camera</button>
+    <label class="sw">
+      <input id="wallTest" type="checkbox">
+      <span class="sw-track"><span class="sw-knob"></span></span>
+      <span class="sw-label">Testing · lift the lock</span>
+    </label>
   </div>
-</section>
+</div>
+
+<!-- shown while the lock is lifted for testing, so it is never forgotten -->
+<button id="testChip" class="test-chip" hidden>LOCK LIFTED · tap to restore</button>
 
 <!-- ================= VIEWER ================= -->
 <section id="viewer" class="screen viewer" hidden>

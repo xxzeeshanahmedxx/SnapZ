@@ -55,19 +55,25 @@ Opening a photo shows the thumbnail immediately, then swaps in the full image
 from R2 once it has loaded. R2 objects are served with a one-year immutable
 cache header, so each photo downloads once per device.
 
-## 4. Day gate
-Instead of a lock, the gallery simply does not open except on your chosen days
-(default **Friday and Sunday**, stored in `localStorage.snapz_days`, changeable
-from the long-press menu). On a closed day the grid renders zero images, the
-thumbnail button is blank, and a screen counts down to the next open day and
-dismisses itself at midnight. **Capture is never gated** — you can always take
-the day's photo.
+## 4. The lock wall
 
-The gallery page itself still opens on a closed day, but it contains **no
-photos** — only a single status tile confirming what happened today: saved to
-the cloud (with the time and size), waiting in the outbox, or nothing taken yet.
-That way you never have to trust the app blindly; you can verify the upload
-without seeing the picture.
+On a closed day the gallery renders **completely normally** — every photo, the
+month headers, the ledger, all of it. The restriction is a single fixed sheet
+on top: translucent and heavily blurred, saying **Locked**, with the countdown
+to the next open day and a confirmation of today's upload. It swallows every
+tap, so nothing underneath can be opened.
+
+It covers the gallery, the viewer and the time-lapse. It never covers the
+camera — **capture is never gated**.
+
+Open days default to Friday and Sunday (`localStorage.snapz_days`, changeable
+from the long-press menu).
+
+**Testing switch.** The wall carries a toggle that lifts the lock, stored in
+`localStorage.snapz_testunlock`. While it is lifted a loud amber chip sits at
+the bottom of the screen — tap it to restore the lock. There is also a `test`
+entry in the long-press menu. Being client-side, this is an honesty mechanism,
+not a security boundary.
 
 ## 5. Passcode
 Your passcode protects the **API**, not the phone. It is PBKDF2-hashed in D1;

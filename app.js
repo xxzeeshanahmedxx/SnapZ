@@ -23,6 +23,11 @@ const DAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Satur
 const openDays = () => { try { return JSON.parse(localStorage.getItem('snapz_days')) || [0,5]; }
                          catch { return [0,5]; } };
 const isOpen = () => openDays().includes(new Date().getDay());
+/* A testing override. Deliberately loud in the UI so it cannot be left on by
+   accident. */
+const TEST = 'snapz_testunlock';
+const lifted = () => localStorage.getItem(TEST) === '1';
+const locked = () => !isOpen() && !lifted();
 function nextOpen() {
   const n = new Date();
   for (let i = 1; i <= 7; i++) {
@@ -232,7 +237,6 @@ async function capture() {
     fly(preview);
     const t = $('toGallery');
     setTimeout(() => {
-      if (!isOpen()) return;             // never leak an image on a closed day
       t.style.backgroundImage = `url(${preview})`;
       t.classList.remove('pop'); void t.offsetWidth; t.classList.add('pop');
     }, 420);
@@ -341,60 +345,21 @@ const ICON = {
   none: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/></svg>'
 };
 
-function statusTile() {
-  const today = dayKey(Date.now());
-  const done  = snaps.find(s => s.day === today);
-  const el = document.createElement('div');
-  el.className = 'tile status';
-
-  const set = (state, head, sub) => {
-    el.className = 'tile status ' + state;
-    el.innerHTML = `<span class="mark">${ICON[state]}</span>
-      <strong>${head}</strong><span class="sub">${sub}</span>`;
-    const n = nextOpen();
-    if (n) {
-      const f = document.createElement('span');
-      f.className = 'sub shut-note';
-      f.textContent = 'Photos open ' + DAYS[n.getDay()];
-      el.appendChild(f);
-    }
-  };
-
-  if (done) set('ok', 'Today is saved',
-                `${fmtTime(done.ts)}${done.bytes ? ' · ' + mb(done.bytes) : ''} · confirmed by the server`);
-  else {
-    set('none', 'No snap today', 'Tap the shutter');
-    cloud.pending().then(q => {
-      const w = q.find(r => r.day === today);
-      if (w) set('wait', 'Waiting to upload', `Taken ${fmtTime(w.ts)} · still on this phone`);
-    });
-  }
-  return el;
-}
-
 let firstPaint = true;
 function paint() {
+  /* Everything renders as it would on an open day — the wall is the only thing
+     standing between you and it. */
   const t = $('toGallery');
-  if (snaps[0] && isOpen()) {
-    t.classList.remove('shut');
-    if (!wrap().classList.contains('busy'))
-      t.style.backgroundImage = `url(${snaps[0].thumb_url || snaps[0].url})`;
-  } else if (!isOpen()) { t.style.backgroundImage = ''; t.classList.add('shut'); }
-  else t.classList.remove('shut');
+  t.classList.remove('shut');
+  if (snaps[0] && !wrap().classList.contains('busy'))
+    t.style.backgroundImage = `url(${snaps[0].thumb_url || snaps[0].url})`;
 
   $('playBtn').hidden = snaps.length < 2;
-  paintCount(); alertBar();
+  paintCount(); alertBar(); wall();
 
   const grid = $('grid');
   grid.innerHTML = '';
   cells.clear();
-
-  if (!isOpen()) {
-    $('ledger').hidden = true;
-    $('empty').hidden = true;
-    grid.appendChild(statusTile());
-    return;
-  }
 
   ledger();
   $('empty').hidden = snaps.length > 0;
@@ -440,28 +405,63 @@ $('gal').addEventListener('scroll', () => {
 
 const show = id => document.querySelectorAll('.screen').forEach(s =>
   ['viewer','lapse','gate','login'].includes(s.id) ? 0 : s.classList.toggle('on', s.id === id));
-$('toGallery').onclick = () => { show('gal'); $('grid').classList.add('rest'); refresh(); };
-$('toCam').onclick = () => show('cam');
+$('toGallery').onclick = () => { show('gal'); $('grid').classList.add('rest'); wall(); refresh(); };
+$('toCam').onclick = () => { show('cam'); wall(); };
 
-/* ---------- day gate ---------- */
-let gateTimer;
-function gate() {
-  const names = openDays().map(d => DAYS[d]);
-  $('gateDay').textContent = DAYS[new Date().getDay()].slice(0, 3);
-  $('gateTitle').textContent = 'You chose ' + plural(names);
-  $('gateMsg').textContent = 'Your photos open then. Today they stay closed.';
-  $('gate').hidden = false;
-  clearInterval(gateTimer);
+/* ---------- the wall ----------
+   Scoped to the gallery, viewer and time-lapse. Never the camera: taking the
+   day's photo is never gated. */
+let wallTimer;
+const onPhotoScreen = () =>
+  $('gal').classList.contains('on') || !$('viewer').hidden || !$('lapse').hidden;
+
+function wallProof() {
+  const el = $('wallProof');
+  const today = dayKey(Date.now());
+  const done = snaps.find(s => s.day === today);
+  const put = (k, txt) => { el.className = 'wall-proof ' + k;
+    el.innerHTML = ICON[k] + `<span>${txt}</span>`; };
+  if (done) put('ok', `Today is saved · ${fmtTime(done.ts)} · confirmed`);
+  else {
+    put('none', 'No snap today');
+    cloud.pending().then(q => {
+      const w = q.find(r => r.day === today);
+      if (w) put('wait', `Waiting to upload · taken ${fmtTime(w.ts)}`);
+    });
+  }
+}
+
+function wall() {
+  const w = $('wall');
+  $('testChip').hidden = !lifted();
+  $('wallTest').checked = lifted();
+
+  if (!locked() || !onPhotoScreen()) {
+    w.hidden = true; clearInterval(wallTimer); return;
+  }
+  if (w.hidden) {
+    w.hidden = false;
+    $('wallMsg').textContent = 'You chose ' + plural(openDays().map(d => DAYS[d])) + '.';
+    wallProof();
+  }
+  clearInterval(wallTimer);
   const tick = () => {
     const n = nextOpen(); if (!n) return;
     const s = Math.max(0, Math.floor((n - Date.now()) / 1000));
     const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), d = Math.floor(h/24);
-    $('gateCount').textContent = d > 0 ? `Opens in ${d}d ${h%24}h` : `Opens in ${h}h ${m}m ${s%60}s`;
-    if (!s) { clearInterval(gateTimer); $('gate').hidden = true; refresh(); }
+    $('wallCount').textContent = d > 0 ? `Opens in ${d}d ${h%24}h ${m}m` : `Opens in ${h}h ${m}m ${s%60}s`;
+    if (!s) { clearInterval(wallTimer); w.hidden = true; refresh(); }
   };
-  tick(); gateTimer = setInterval(tick, 1000);
+  tick(); wallTimer = setInterval(tick, 1000);
 }
-$('gateClose').onclick = () => { clearInterval(gateTimer); $('gate').hidden = true; show('cam'); };
+
+$('wallBack').onclick = () => { clearInterval(wallTimer); $('wall').hidden = true; show('cam'); };
+$('wallTest').onchange = e => {
+  if (e.target.checked) localStorage.setItem(TEST, '1'); else localStorage.removeItem(TEST);
+  navigator.vibrate?.(12);
+  wall();
+};
+$('testChip').onclick = () => { localStorage.removeItem(TEST); wall(); };
 
 /* ================= VIEWER ================= */
 let cur = null, fromCell = null;
@@ -504,7 +504,6 @@ function targetRect(s) {
 }
 
 function openViewer(s, cell) {
-  if (!isOpen()) return gate();
   fromCell = cell || cells.get(s.day) || null;
   load(s);
   $('viewer').hidden = false;
@@ -549,17 +548,17 @@ function closeViewer() {
 $('vClose').onclick = closeViewer;
 
 /* swipe between days — scrubbing your own year is the point of this app */
-let sx = 0, sy = 0, dragging = false, locked = null;
+let sx = 0, sy = 0, dragging = false, axis = null;
 const stage = $('vStage');
 stage.addEventListener('pointerdown', e => {
   if (!cur) return;
-  dragging = true; locked = null; sx = e.clientX; sy = e.clientY;
+  dragging = true; axis = null; sx = e.clientX; sy = e.clientY;
 });
 stage.addEventListener('pointermove', e => {
   if (!dragging) return;
   const dx = e.clientX - sx, dy = e.clientY - sy;
-  if (!locked && Math.abs(dx) + Math.abs(dy) > 10) locked = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
-  if (locked === 'x') stage.style.transform = `translateX(${dx * 0.55}px)`;
+  if (!axis && Math.abs(dx) + Math.abs(dy) > 10) axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+  if (axis === 'x') stage.style.transform = `translateX(${dx * 0.55}px)`;
 });
 const endDrag = e => {
   if (!dragging) return;
@@ -568,7 +567,7 @@ const endDrag = e => {
   stage.style.transition = 'transform .32s ' + SPRING;
   stage.style.transform = '';
   setTimeout(() => { stage.style.transition = ''; }, 340);
-  if (locked !== 'x' || Math.abs(dx) < 55) return;
+  if (axis !== 'x' || Math.abs(dx) < 55) return;
   const i = snaps.indexOf(cur);
   const next = snaps[dx < 0 ? i + 1 : i - 1];   // newest first, so left = older
   if (!next) return;
@@ -594,7 +593,6 @@ $('vDel').onclick = async () => {
 /* ================= TIME-LAPSE ================= */
 let lapseTimer, frames = [], recorder = null, LW = 1080, LH = 1440;
 $('playBtn').onclick = async () => {
-  if (!isOpen()) return gate();
   const ordered = [...snaps].reverse();
   frames = await Promise.all(ordered.map(s => new Promise(r => {
     const i = new Image(); i.crossOrigin = 'anonymous';
@@ -646,7 +644,6 @@ $('lSave').onclick = async () => {
 
 /* ---- export: verifiable, not just pretty ---- */
 $('menu').onclick = () => {
-  if (!isOpen()) return gate();
   const out = {
     exported: new Date().toISOString(),
     source: cloud.apiBase(),
@@ -695,7 +692,12 @@ $('toGallery').addEventListener('pointerdown', () => {
     press = null;
     navigator.vibrate?.(14);
     if (!cloud.getToken()) { localStorage.removeItem('snapz_nocloud'); return showLogin(); }
-    const c = prompt('Type: days · passcode · signout · api', '');
+    const c = prompt('Type: days · test · passcode · signout · api', '');
+    if (c === 'test') {
+      if (lifted()) localStorage.removeItem(TEST); else localStorage.setItem(TEST, '1');
+      alert(lifted() ? 'Lock lifted (testing).' : 'Lock restored.');
+      return wall();
+    }
     if (c === 'days') {
       const map = { sun:0, mon:1, tue:2, wed:3, thu:4, fri:5, sat:6 };
       const v = prompt('Days you can view photos, e.g. sun,fri',
@@ -725,8 +727,8 @@ document.addEventListener('keydown', e => {
   }
   if (e.key !== 'Escape') return;
   if (!$('lapse').hidden) $('lClose').onclick();
+  else if (!$('wall').hidden) $('wallBack').onclick();
   else if (!$('viewer').hidden) closeViewer();
-  else if (!$('gate').hidden) $('gateClose').onclick();
   else show('cam');
 });
 

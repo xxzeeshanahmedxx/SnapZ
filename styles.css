@@ -241,12 +241,53 @@ a{color:var(--text)}
   animation:shake .4s var(--fade)}
 @keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-5px)}75%{transform:translateX(5px)}}
 
-#gate{z-index:70}
-.gate-cal{width:78px;height:78px;margin:0 auto 20px;border-radius:20px;border:2px solid var(--line);
-  display:flex;align-items:center;justify-content:center;background:var(--surface)}
-.gate-cal span{font-size:14px;font-weight:600;letter-spacing:1px;color:var(--dim);text-transform:uppercase}
-.gate-count{margin-top:-12px !important;font-size:13px;color:var(--faint) !important;
+/* ================= LOCK WALL =================
+   The page underneath renders in full. This sheet is the whole restriction:
+   fixed, opaque enough to be a wall, blurred enough that detail does not read. */
+.wall{position:fixed;inset:0;z-index:200;display:flex;align-items:center;justify-content:center;
+  padding:28px;text-align:center;
+  background:rgba(10,10,11,.72);
+  -webkit-backdrop-filter:blur(26px) saturate(.55) brightness(.75);
+  backdrop-filter:blur(26px) saturate(.55) brightness(.75);
+  animation:wallIn .45s var(--snap) both}
+.wall[hidden]{display:none !important}
+@keyframes wallIn{from{opacity:0;backdrop-filter:blur(0)}to{opacity:1}}
+.wall-in{max-width:300px;animation:rise .5s .06s var(--spring) both}
+.wall-ico{width:46px;height:46px;margin-bottom:16px;fill:none;stroke:var(--dim);stroke-width:1.7;
+  stroke-linecap:round;stroke-linejoin:round}
+.wall-in h1{margin:0 0 7px;font-size:23px;font-weight:650;letter-spacing:-.025em}
+.wall-in p{margin:0;font-size:14px;color:var(--dim)}
+.wall-count{margin-top:6px !important;font-size:13px;color:var(--faint) !important;
   font-variant-numeric:tabular-nums}
+.wall-proof{margin-top:20px;padding:11px 14px;border-radius:13px;background:rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.09);font-size:12.5px;color:#cfccc8;
+  display:flex;align-items:center;gap:9px;justify-content:center}
+.wall-proof svg{width:17px;height:17px;flex:0 0 auto;fill:none;stroke-width:2.6;
+  stroke-linecap:round;stroke-linejoin:round}
+.wall-proof.ok svg{stroke:var(--ok)}
+.wall-proof.wait svg{stroke:var(--warn);animation:spin 1.6s linear infinite}
+.wall-proof.none svg{stroke:#5f5d63}
+.wall-back{margin-top:22px;display:inline-block}
+
+/* ---- testing switch ---- */
+.sw{margin-top:26px;display:flex;align-items:center;justify-content:center;gap:10px;cursor:pointer;
+  opacity:.65;transition:opacity .2s}
+.sw:active{opacity:1}
+.sw input{position:absolute;opacity:0;width:0;height:0}
+.sw-track{width:42px;height:25px;border-radius:999px;background:#2d2d33;position:relative;
+  transition:background .25s var(--fade);flex:0 0 auto}
+.sw-knob{position:absolute;top:3px;left:3px;width:19px;height:19px;border-radius:50%;background:#8d8b88;
+  transition:transform .32s var(--spring),background .25s}
+.sw input:checked + .sw-track{background:var(--ok-bg)}
+.sw input:checked + .sw-track .sw-knob{transform:translateX(17px);background:var(--ok)}
+.sw-label{font-size:12px;color:var(--faint);letter-spacing:.01em}
+
+.test-chip{position:fixed;left:50%;transform:translateX(-50%);z-index:210;
+  bottom:calc(14px + env(safe-area-inset-bottom));
+  padding:7px 14px;border-radius:999px;font-size:10.5px;font-weight:700;letter-spacing:.11em;
+  background:var(--warn-bg);color:var(--warn);border:1px solid #4a3d16;
+  animation:rise .4s var(--spring) both}
+.test-chip[hidden]{display:none !important}
 
 /* ================= MOTION PREFERENCES ================= */
 @media (prefers-reduced-motion:reduce){
